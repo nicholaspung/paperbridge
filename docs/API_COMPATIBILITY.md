@@ -14,7 +14,7 @@ Reports: [Linux](phase0/report-3.29.1.0-linux.md), [macOS](phase0/report-3.29.1.
 | `GET /download/{id}/placeholder` | 200, byte-identical size to `/pdf`. Both paths work. |
 | `GET /download/{id}/rmdoc` | 200, valid ZIP in about 170 ms. Contains `.metadata`, `.content`, `.pagedata`, and per-page `.rm` files. No thumbnails inside. |
 | `GET /thumbnail/{id}` | **No reply within 10 s, and the web server then stopped answering every request** (TCP connections accepted, no response) for over ten minutes. Switching the USB web interface off and on restored it. Reproduced twice (Linux and macOS hosts), both times on the same notebook. Do not call this endpoint. |
-| `POST /upload` | Not tested yet. |
+| `POST /upload` | **201** with a small JSON body (`{"status": …}`) after 3.7 s for an 11.6 MB PDF. Sent as multipart field `file` with `Origin` and `Referer` set to the tablet. The probe had listed 11 subfolders, then the root, then uploaded: exactly one new ID appeared in the root. Success is 201, not 200. |
 
 **Listing schema.** Every item has exactly these fields: `ID`, `Parent`, `Type`, `fileType`, `VissibleName`, `VisibleName`, `ModifiedClient`, `Bookmarked`, `CurrentPage`.
 
@@ -34,4 +34,4 @@ Reports: [Linux](phase0/report-3.29.1.0-linux.md), [macOS](phase0/report-3.29.1.
 - **Sleep:** with the tablet asleep and on the cable, listings and a PDF export still worked (checked once, minutes after sleep began).
 - With the tablet unplugged, `10.11.99.1` routes to the default gateway.
 
-**Still open:** upload behavior and headers, behavior after a long sleep, whether the web-interface setting survives a reboot, whether thumbnails of other documents also hang the server, title encoding, export time for large documents.
+**Still open:** whether an upload really follows the last-listed folder (only the root was tested), whether `Origin`/`Referer` are required, EPUB upload, behavior after a long sleep, whether the web-interface setting survives a reboot, whether thumbnails of other documents also hang the server, title encoding, export time for large documents.
