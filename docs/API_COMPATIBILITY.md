@@ -2,9 +2,9 @@
 
 What `pb-probe` has measured on real hardware. Community documentation is a starting point; this file is the evidence.
 
-## reMarkable 2, firmware 3.29.1.0 (Linux host, 2026-11-12)
+## reMarkable 2, firmware 3.29.1.0 (Linux and macOS hosts, 2026-11-12)
 
-Full report: [phase0/report-3.29.1.0-linux.md](phase0/report-3.29.1.0-linux.md). Fixtures: `tests/fixtures/3.29.1.0/`.
+Reports: [Linux](phase0/report-3.29.1.0-linux.md), [macOS](phase0/report-3.29.1.0-macos.md). Fixtures: `tests/fixtures/3.29.1.0/`.
 
 | Operation | Result |
 |---|---|
@@ -13,7 +13,7 @@ Full report: [phase0/report-3.29.1.0-linux.md](phase0/report-3.29.1.0-linux.md).
 | `GET /download/{id}/pdf` | 200, valid PDF. About 1.5 s to first byte for a one-page notebook. |
 | `GET /download/{id}/placeholder` | 200, byte-identical size to `/pdf`. Both paths work. |
 | `GET /download/{id}/rmdoc` | 200, valid ZIP in about 170 ms. Contains `.metadata`, `.content`, `.pagedata`, and per-page `.rm` files. No thumbnails inside. |
-| `GET /thumbnail/{id}` | **No reply within 10 s, and the web server then stopped answering every request** (TCP connections accepted, no response) for over ten minutes. Switching the USB web interface off and on restored it. Seen once, on a notebook. Do not call this endpoint. |
+| `GET /thumbnail/{id}` | **No reply within 10 s, and the web server then stopped answering every request** (TCP connections accepted, no response) for over ten minutes. Switching the USB web interface off and on restored it. Reproduced twice (Linux and macOS hosts), both times on the same notebook. Do not call this endpoint. |
 | `POST /upload` | Not tested yet. |
 
 **Listing schema.** Every item has exactly these fields: `ID`, `Parent`, `Type`, `fileType`, `VissibleName`, `VisibleName`, `ModifiedClient`, `Bookmarked`, `CurrentPage`.
@@ -30,6 +30,8 @@ Full report: [phase0/report-3.29.1.0-linux.md](phase0/report-3.29.1.0-linux.md).
 - USB ID `04b3:4010`, manufacturer string `reMarkable`, Linux driver `cdc_ether`.
 - The host address and netmask changed across a firmware update on the same day: `10.11.99.11/27` before, `10.11.99.2/29` on 3.29.1.0. Never hard-code the host address.
 - With the web interface switched off, the tablet answers pings and port 80 refuses connections. Port 22 (SSH) is open either way.
+- **macOS:** the tablet appears as `en7` with the same `10.11.99.2/29` address, and listings work from a CLI run in Terminal with the same results as Linux. This does not test the app's own Local Network permission.
+- **Sleep:** with the tablet asleep and on the cable, listings and a PDF export still worked (checked once, minutes after sleep began).
 - With the tablet unplugged, `10.11.99.1` routes to the default gateway.
 
-**Still open:** upload behavior and headers, behavior while the tablet sleeps, whether the web-interface setting survives a reboot, whether every thumbnail request hangs the server, title encoding, export time for large documents.
+**Still open:** upload behavior and headers, behavior after a long sleep, whether the web-interface setting survives a reboot, whether thumbnails of other documents also hang the server, title encoding, export time for large documents.
