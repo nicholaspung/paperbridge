@@ -41,6 +41,9 @@ struct Args {
     /// Upload this DISPOSABLE PDF/EPUB to the tablet's root folder. This writes to the tablet.
     #[arg(long, value_name = "FILE")]
     allow_upload: Option<PathBuf>,
+    /// Also fetch one thumbnail. On firmware 3.x this request has hung the tablet's web server.
+    #[arg(long)]
+    thumbnail: bool,
     /// Proceed even if the interface could not be confirmed as a reMarkable USB device.
     #[arg(long)]
     accept_unverified_interface: bool,
@@ -217,7 +220,8 @@ async fn run(args: Args) -> Result<ExitCode, Box<dyn std::error::Error>> {
             std::fs::write(args.out.join("report.md"), &rep.md)?;
             eprintln!(
                 "The interface is up but the web interface did not return a listing.\n\
-                 See {}/report.md.",
+                 If the request was refused, switch on Settings > Storage > USB web interface.\n\
+                 If it timed out, wake and unlock the tablet. See {}/report.md.",
                 args.out.display()
             );
             return Ok(ExitCode::from(4));
@@ -268,7 +272,8 @@ async fn run(args: Args) -> Result<ExitCode, Box<dyn std::error::Error>> {
     }
 
     // Thumbnail of the first document.
-    if let Some(id) = all.iter().filter(|i| !i.is_folder).find_map(|i| i.id.clone()) {
+    let first_doc = all.iter().filter(|i| !i.is_folder).find_map(|i| i.id.clone());
+    if let (true, Some(id)) = (args.thumbnail, first_doc) {
         let path = format!("/thumbnail/{id}");
         let r = s.small(Method::GET, &path, THUMB_CAP).await;
         rep.request("GET", &path, &r);

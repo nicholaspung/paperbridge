@@ -4,6 +4,12 @@
 
 ## 0. Changes
 
+**v1.3.1 (first hardware results, firmware 3.29.1.0; details in `docs/API_COMPATIBILITY.md`):**
+- **Do not call `GET /thumbnail/{id}`.** The one request made got no reply and hung the tablet's web server until the USB web interface was toggled. Thumbnails are out of the MVP unless a safe source is found (for example, rendering page 1 of an exported PDF on the host).
+- Listing works with `GET` and `POST`; `/pdf`, `/placeholder` and `/rmdoc` all work. The listing has both title spellings and no device, firmware, or size fields.
+- The host address and netmask changed after a firmware update (`10.11.99.11/27` → `10.11.99.2/29`).
+- New connection-state cases: port 80 **refused** means the web interface is off; port 80 **accepting but silent** means the web server is hung and the user must toggle the setting.
+
 **v1.3 (review pass):**
 - **Export timeouts** gain a separate time-to-first-byte allowance, because the tablet renders before it sends (§4.1).
 - **Uploads hold the device queue** across list-root → upload → verify, and verification diffs document IDs (§4.1).
@@ -228,7 +234,7 @@ The tablet exposes a USB network interface at the documented address `10.11.99.1
 | Export annotated PDF | `GET /download/{id}/pdf` | Some firmware uses `/download/{id}/placeholder` instead |
 | Export native archive | `GET /download/{id}/rmdoc` | Only on sufficiently recent firmware (documented from 3.9); confirm |
 | Import file | `POST /upload` (multipart) | Requires appropriate Origin/Referer; destination is the last folder listed (stateful) |
-| Thumbnail | `GET /thumbnail/{id}` | May be missing; show a placeholder |
+| Thumbnail | `GET /thumbnail/{id}` | **Hung the web server on 3.29.1.0. Do not call.** Show a placeholder |
 
 **Known response quirks to normalize** (confirm against fixtures): the display-name field is spelled `VissibleName`; folders vs. documents are distinguished by `Type` = `CollectionType` / `DocumentType`; `fileType` distinguishes `pdf` / `epub` / notebook; timestamps appear as `ModifiedClient`; `Parent` holds the parent ID. Treat every field as optional, and map unknown values to `unknown` instead of failing the whole listing.
 

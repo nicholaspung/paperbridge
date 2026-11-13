@@ -1,0 +1,33 @@
+[
+  {
+    "Bookmarked": false,
+    "CurrentPage": 0,
+    "ID": "00000000-0000-4000-8000-000000000034",
+    "ModifiedClient": "2000-01-01T00:00:00.621Z",
+    "Parent": "00000000-0000-4000-8000-000000000005",
+    "Type": "DocumentType",
+    "VisibleName": "Document 45",
+    "VissibleName": "Document 45",
+    "fileType": "pdf"
+  },
+  {
+    "Bookmarked": false,
+    "CurrentPage": 0,
+    "ID": "00000000-0000-4000-8000-000000000035",
+    "ModifiedClient": "2000-01-01T00:00:00.973Z",
+    "Parent": "00000000-0000-4000-8000-000000000005",
+    "Type": "DocumentType",
+    "VisibleName": "Document 46",
+    "VissibleName": "Document 46",
+    "fileType": "pdf"
+  },
+  {
+    "Bookmarked": false,
+    "ID": "00000000-0000-4000-8000-000000000008",
+    "ModifiedClient": "2000-01-01T00:00:00.534Z",
+    "Parent": "00000000-0000-4000-8000-000000000005",
+    "Type": "CollectionType",
+    "VisibleName": "Document 47",
+    "VissibleName": "Document 47"
+  }
+]
