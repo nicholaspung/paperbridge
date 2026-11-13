@@ -1,8 +1,17 @@
 # PaperBridge — Implementation Plan
 
-**Version:** 1.3 · **Date:** 2026-11-12 · **Target:** Linux + macOS desktop, reMarkable 2 · **Primary dev environment:** Linux (Arch) · **Status:** specification for a coding agent
+**Version:** 1.4 · **Date:** 2026-11-12 · **Target:** Linux + macOS desktop, reMarkable 2 · **Primary dev environment:** Linux (Arch) · **Status:** specification for a coding agent
 
 ## 0. Changes
+
+**v1.4 (Phase 1 as built):**
+- **No thumbnails and no `pbthumb://` scheme.** The endpoint is unsafe (v1.3.1), so the library shows type icons and the CSP allows no custom scheme.
+- **The library is walked in full on connect** (12 requests, well under a second on the owner's tablet) and cached in SQLite; the UI only ever reads the cache. The walk ends by listing the root.
+- **Connection states changed:** `WebInterfaceUnreachable` is split into `WebInterfaceOff` (port 80 refused) and `WebInterfaceHung` (accepts, never answers).
+- **Linux privacy check:** a reMarkable USB interface without a tablet-assigned address is the warning signal (it is what NetworkManager's "shared" mode produces). NAT rules are not inspected.
+- **Deferred from Phase 1:** device profiles for more than one tablet (§6), USB verification of the interface on macOS, and macOS host privacy checks. The app says "unverified" on macOS and accepts a subnet match there.
+- **Linux/NVIDIA/Wayland:** the app disables WebKitGTK's DMA-BUF renderer for itself to avoid a startup crash (`docs/PLATFORM_NOTES.md`).
+- TypeScript types are generated with `ts-rs` and committed; CI fails if they are stale.
 
 **v1.3.1 (first hardware results, firmware 3.29.1.0; details in `docs/API_COMPATIBILITY.md`):**
 - **Do not call `GET /thumbnail/{id}`.** The one request made got no reply and hung the tablet's web server until the USB web interface was toggled. Thumbnails are out of the MVP unless a safe source is found (for example, rendering page 1 of an exported PDF on the host).
