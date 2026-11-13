@@ -31,15 +31,25 @@ export function offending(line) {
   return null; // AF_UNIX, AF_NETLINK, AF_UNSPEC: local
 }
 
+// Own process group, so strace and everything it traces can be stopped together.
 const child = spawn("strace", ["-f", "-qq", "-e", "trace=connect", "-o", log, ...command], {
   stdio: "inherit",
+  detached: true,
 });
+const killGroup = (signal) => {
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // already gone
+  }
+};
 let timedOut = false;
 const timer =
   timeout &&
   setTimeout(() => {
     timedOut = true;
-    child.kill("SIGTERM");
+    killGroup("SIGTERM");
+    setTimeout(() => killGroup("SIGKILL"), 3000);
   }, timeout * 1000);
 
 child.on("exit", (code, signal) => {
