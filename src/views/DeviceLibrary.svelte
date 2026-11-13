@@ -32,11 +32,14 @@
   function toggle(kind: DocKind) {
     kinds = kinds.includes(kind) ? kinds.filter((k) => k !== kind) : [...kinds, kind];
   }
+  function clearSearch() {
+    query = "";
+    kinds = [];
+  }
   function open(rec: DocumentRecord) {
     if (rec.kind !== "folder") return;
     folder = rec.id;
-    query = "";
-    kinds = [];
+    clearSearch();
   }
 </script>
 
@@ -73,6 +76,7 @@
   {#if searching}
     <p class="muted" data-testid="result-count">
       {rows.length} {rows.length === 1 ? "result" : "results"} in the whole library
+      <button class="crumb" data-testid="clear-search" onclick={clearSearch}>Clear search</button>
     </p>
   {:else}
     <nav aria-label="Folder path" data-testid="breadcrumbs">

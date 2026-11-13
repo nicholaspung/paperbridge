@@ -38,7 +38,7 @@ describe("PaperBridge against the mock tablet", () => {
     await $('[data-testid="filter-epub"]').click();
     await $('[data-testid="search"]').setValue("no such title anywhere");
     await expect($('[data-testid="empty"]')).toBeDisplayed();
-    await $('[data-testid="search"]').clearValue();
+    await $('[data-testid="clear-search"]').click();
     await browser.waitUntil(async () => (await rows().length) === 18);
   });
 

@@ -78,6 +78,9 @@ it("searches the whole library and filters by type", async () => {
 
   await fireEvent.input(screen.getByTestId("search"), { target: { value: "zzz" } });
   expect(screen.getByTestId("empty")).toHaveTextContent("No documents match");
+
+  await fireEvent.click(screen.getByTestId("clear-search"));
+  expect(titles()).toEqual(["Projects", "Scratch"]);
 });
 
 it("never claims isolation is verified", async () => {
