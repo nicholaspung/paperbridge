@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/pb-core", "crates/pb-probe"]
+members = ["crates/pb-core", "crates/pb-mock-tablet", "crates/pb-probe", "src-tauri"]
 
 [workspace.package]
 version = "0.0.1"

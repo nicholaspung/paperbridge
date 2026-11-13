@@ -12,14 +12,42 @@ jobs:
     runs-on: ubuntu-22.04     # oldest supported LTS, for glibc compatibility
     steps:
       - uses: actions/checkout@v7
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libxdo-dev libssl-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            webkit2gtk-driver xvfb strace
+      - uses: pnpm/action-setup@v6          # reads "packageManager" from package.json
+      - uses: actions/setup-node@v7
+        with: { node-version: lts/*, cache: pnpm }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build                      # frontend dist must exist before src-tauri compiles
       - run: cargo test --workspace --locked
+      - name: Generated TypeScript bindings are committed
+        run: git diff --exit-code -- src/lib/bindings
+      - run: pnpm check
+      - run: pnpm test                       # Vitest UI tests
+      - run: cargo install tauri-driver --locked
+      - run: cargo build --locked -p pb-mock-tablet
+      - run: pnpm build:e2e                  # debug app with --features mock-device
+      - name: End-to-end tests under the network audit
+        run: xvfb-run -a node scripts/network-audit.mjs -- pnpm test:e2e
+      - run: pnpm tauri build --bundles appimage,deb
+      - name: Release binary ignores the mock override
+        run: xvfb-run -a pnpm check:release-override
+      - name: Release binary makes no outside connections while idle
+        run: xvfb-run -a node scripts/network-audit.mjs --timeout 60 -- target/release/paperbridge
       - run: cargo build --release --locked -p pb-probe
       - uses: actions/upload-artifact@v7
         with:
-          name: pb-probe-linux
-          path: target/release/pb-probe
+          name: PaperBridge-linux
+          path: |
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/deb/*.deb
+            target/release/pb-probe
           retention-days: 7
 
   macos:
@@ -27,12 +55,20 @@ jobs:
     runs-on: macos-latest     # Apple Silicon
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with: { node-version: lts/*, cache: pnpm }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
       - run: cargo test --workspace --locked
+      - run: pnpm tauri build --bundles dmg
       - run: cargo build --release --locked -p pb-probe
       - uses: actions/upload-artifact@v7
         with:
-          name: pb-probe-macos
-          path: target/release/pb-probe
+          name: PaperBridge-macos
+          path: |
+            target/release/bundle/dmg/*.dmg
+            target/release/pb-probe
           retention-days: 7

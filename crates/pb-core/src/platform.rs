@@ -69,6 +69,25 @@ pub fn find_tablet_interfaces() -> std::io::Result<Vec<TabletInterface>> {
     Ok(found)
 }
 
+/// Names of all network interfaces that are a known reMarkable USB device,
+/// whatever address they hold. Linux only; empty elsewhere.
+pub fn known_usb_interfaces() -> Vec<String> {
+    let mut names = Vec::new();
+    if cfg!(target_os = "linux") {
+        if let Ok(dir) = std::fs::read_dir("/sys/class/net") {
+            for entry in dir.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let known = usb_ids(&name)
+                    .is_some_and(|u| KNOWN_USB_IDS.contains(&(u.vendor, u.product)));
+                if known {
+                    names.push(name);
+                }
+            }
+        }
+    }
+    names
+}
+
 #[cfg(target_os = "linux")]
 fn usb_ids(iface: &str) -> Option<UsbIds> {
     usb_ids_in(std::path::Path::new("/sys/class/net"), iface)

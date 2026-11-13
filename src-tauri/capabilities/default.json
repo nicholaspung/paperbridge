@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The main window may listen for events and call PaperBridge's own commands. No plugins, no filesystem, no shell, no HTTP.",
+  "windows": ["main"],
+  "permissions": ["core:event:default"]
+}

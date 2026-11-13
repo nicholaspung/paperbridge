@@ -12,6 +12,8 @@ pub enum Error {
     Timeout(Duration, &'static str),
     #[error("response larger than the {0} byte limit")]
     TooLarge(u64),
+    #[error("unexpected response from the tablet: {0}")]
+    UnsupportedResponse(String),
     #[error("device request failed: {0}")]
     Http(#[from] reqwest::Error),
     #[error("{0}")]

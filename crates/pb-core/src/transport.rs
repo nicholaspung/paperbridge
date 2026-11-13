@@ -61,7 +61,17 @@ pub struct DownloadStats {
     pub head: Vec<u8>,
 }
 
+/// Where requests go. Release builds can only ever name the tablet.
+#[derive(Debug, Clone)]
+pub enum Target {
+    Tablet(TabletInterface),
+    /// A mock tablet on loopback, for tests. Compiled only with `mock-device`.
+    #[cfg(feature = "mock-device")]
+    Mock(std::net::SocketAddr),
+}
+
 pub struct DeviceTransport {
+    base: String,
     short: Client,
     long: Client,
     gate: Mutex<()>,
@@ -75,7 +85,7 @@ pub struct Session<'a> {
     _guard: MutexGuard<'a, ()>,
 }
 
-fn base_url() -> String {
+fn tablet_base() -> String {
     format!("http://{TABLET_IP}")
 }
 
@@ -101,19 +111,34 @@ fn headers_of(resp: &Response) -> Vec<(String, String)> {
 }
 
 impl DeviceTransport {
-    pub fn new(iface: &TabletInterface, timeouts: Timeouts) -> Result<Self> {
+    pub fn new(target: &Target, timeouts: Timeouts) -> Result<Self> {
+        let (base, iface) = match target {
+            Target::Tablet(iface) => (tablet_base(), Some(iface)),
+            #[cfg(feature = "mock-device")]
+            Target::Mock(addr) => {
+                if !addr.ip().is_loopback() {
+                    return Err(Error::InvalidPath(format!("mock target {addr} is not loopback")));
+                }
+                (format!("http://{addr}"), None)
+            }
+        };
         let build = |connect: Duration| {
-            let b = Client::builder()
+            let mut b = Client::builder()
                 .no_proxy()
                 .redirect(redirect::Policy::none())
                 .connect_timeout(connect)
-                .local_address(IpAddr::V4(iface.host_addr))
                 .user_agent("PaperBridge");
-            #[cfg(target_os = "linux")]
-            let b = b.interface(&iface.name);
+            if let Some(iface) = iface {
+                b = b.local_address(IpAddr::V4(iface.host_addr));
+                #[cfg(target_os = "linux")]
+                {
+                    b = b.interface(&iface.name);
+                }
+            }
             b.build()
         };
         Ok(DeviceTransport {
+            base,
             short: build(timeouts.connect_short)?,
             long: build(timeouts.connect_long)?,
             gate: Mutex::new(()),
@@ -141,7 +166,7 @@ impl Session<'_> {
             let mut resp = self
                 .t
                 .short
-                .request(method, format!("{}{path}", base_url()))
+                .request(method, format!("{}{path}", self.t.base))
                 .send()
                 .await?;
             let status = resp.status().as_u16();
@@ -167,7 +192,7 @@ impl Session<'_> {
         let started = Instant::now();
         let mut resp = tokio::time::timeout(
             t.first_byte,
-            self.t.long.get(format!("{}{path}", base_url())).send(),
+            self.t.long.get(format!("{}{path}", self.t.base)).send(),
         )
         .await
         .map_err(|_| Error::Timeout(t.first_byte, "waiting for the tablet to start an export"))??;
@@ -248,9 +273,9 @@ impl Session<'_> {
             let mut resp = self
                 .t
                 .long
-                .post(format!("{}/upload", base_url()))
-                .header("Origin", base_url())
-                .header("Referer", format!("{}/", base_url()))
+                .post(format!("{}/upload", self.t.base))
+                .header("Origin", &self.t.base)
+                .header("Referer", format!("{}/", self.t.base))
                 .multipart(form)
                 .send()
                 .await?;
@@ -311,6 +336,6 @@ mod tests {
 
     #[test]
     fn base_is_fixed() {
-        assert_eq!(base_url(), "http://10.11.99.1");
+        assert_eq!(tablet_base(), "http://10.11.99.1");
     }
 }

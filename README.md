@@ -2,7 +2,24 @@
 
 A USB-only desktop manager for the reMarkable 2, for Linux and macOS. No cloud account, no reMarkable desktop app, and no internet traffic from the app.
 
-**Status: Phase 0.** Only the device transport (`pb-core`) and the discovery tool (`pb-probe`) exist. The desktop app is not built yet. See [the plan](PaperBridge_Implementation_Plan.md).
+**Status: Phase 1.** The app connects to the tablet, shows the library (folders, notebooks, PDFs, EPUBs), and searches it. Importing, exporting and backups are not built yet. See [the plan](PaperBridge_Implementation_Plan.md) and what has been [observed on real hardware](docs/API_COMPATIBILITY.md).
+
+## Running the app
+
+```
+pnpm install
+pnpm tauri dev
+```
+
+Setup, troubleshooting and macOS builds are in [docs/PLATFORM_NOTES.md](docs/PLATFORM_NOTES.md).
+
+## Layout
+
+- `crates/pb-core`: everything that talks to the tablet or the disk. No GUI code.
+- `crates/pb-probe`: command-line discovery tool.
+- `crates/pb-mock-tablet`: a fake tablet for tests, with fault injection.
+- `src-tauri`: the desktop shell, a thin command layer over `pb-core`.
+- `src`: the Svelte interface.
 
 ## pb-probe
 
@@ -31,6 +48,12 @@ Output goes to `probe-output/` (git-ignored):
 
 On macOS the tool cannot yet confirm that the interface is a USB device, so it asks for `--accept-unverified-interface`.
 
-## Development
+## Tests
 
-Rust stable via `rustup`. `cargo test --workspace` runs everything and needs no tablet.
+```
+cargo test --workspace     # core, mock-tablet integration, bindings
+pnpm test                  # interface tests with a mocked backend
+pnpm check                 # type-check
+```
+
+End-to-end tests, the network audit and the release checks run in CI on Linux (they need `WebKitWebDriver`, `xvfb` and `strace`).

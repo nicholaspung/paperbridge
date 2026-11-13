@@ -7,7 +7,7 @@ mod sanitize;
 
 use clap::Parser;
 use pb_core::platform::{find_tablet_interfaces, TabletInterface};
-use pb_core::transport::{DeviceTransport, Session, SmallResponse, Timeouts};
+use pb_core::transport::{DeviceTransport, Session, SmallResponse, Target, Timeouts};
 use pb_core::DocId;
 use pb_core::transport::Method;
 use sanitize::Sanitizer;
@@ -172,7 +172,7 @@ async fn run(args: Args) -> Result<ExitCode, Box<dyn std::error::Error>> {
         Ok(i) => i,
         Err(code) => return Ok(code),
     };
-    let transport = DeviceTransport::new(&iface, Timeouts::default())?;
+    let transport = DeviceTransport::new(&Target::Tablet(iface.clone()), Timeouts::default())?;
     let mut s = transport.session().await;
 
     let fixtures = args.out.join("fixtures");

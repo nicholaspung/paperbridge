@@ -1,0 +1,23 @@
+[package]
+name = "paperbridge"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "paperbridge_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[features]
+# Test-only: lets PB_DEVICE_BASE_URL point the app at a loopback mock tablet.
+mock-device = ["pb-core/mock-device"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+pb-core = { path = "../crates/pb-core" }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["sync", "time"] }
+ts-rs = "12"
