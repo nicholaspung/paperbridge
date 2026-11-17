@@ -10,6 +10,9 @@
   --warn: #a15c00;
   --problem: #a8322a;
   --hover: #efeadf;
+  --kind-notebook: #6a4c93;
+  --kind-pdf: #a8322a;
+  --kind-epub: #2e7d4f;
   font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans", sans-serif;
   font-size: 15px;
   line-height: 1.45;
@@ -26,6 +29,9 @@
     --warn: #e0a850;
     --problem: #ee8a80;
     --hover: #262b31;
+    --kind-notebook: #b9a0dc;
+    --kind-pdf: #ee8a80;
+    --kind-epub: #6cc08f;
   }
 }
 * { box-sizing: border-box; }
@@ -46,3 +52,19 @@ h1, h2, h3, p { margin: 0; }
 .dot.ok { background: var(--ok); }
 .dot.problem { background: var(--problem); }
 .dot.warning { background: var(--warn); }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0;
+  border: 1px solid var(--border); background: var(--surface); border-radius: 6px;
+}
+.icon-btn:hover { background: var(--hover); }
+.icon-btn:disabled { opacity: 0.45; cursor: default; }
+.icon-btn.plain { border-color: transparent; background: none; }
+.icon-btn.plain:hover { background: var(--hover); }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinning { animation: spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }

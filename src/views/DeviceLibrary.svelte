@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "../components/Icon.svelte";
   import KindIcon from "../components/KindIcon.svelte";
   import type { DocKind } from "../lib/bindings/DocKind";
   import type { DocumentRecord } from "../lib/bindings/DocumentRecord";
@@ -25,6 +26,7 @@
   const current = $derived(folder !== null && library.some((r) => r.id === folder) ? folder : null);
   const trail = $derived(breadcrumbs(library, current));
   const rows = $derived(searching ? search(library, query, new Set(kinds)) : childrenOf(library, current));
+  const refreshLabel = $derived(status.syncing ? "Refreshing…" : "Refresh from the tablet");
   const synced = $derived(
     status.lastSyncedMs === null ? null : new Date(status.lastSyncedMs).toLocaleString(),
   );
@@ -57,32 +59,48 @@
   {/if}
 
   <div class="toolbar">
-    <input
-      type="search" placeholder="Search titles" aria-label="Search titles"
-      data-testid="search" bind:value={query}
-    />
+    <div class="search">
+      <span class="search-icon muted"><Icon name="search" size={18} /></span>
+      <input
+        type="search" placeholder="Search titles" aria-label="Search titles"
+        data-testid="search" bind:value={query}
+      />
+      {#if searching}
+        <button class="icon-btn plain clear" data-testid="clear-search" aria-label="Clear search" title="Clear search" onclick={clearSearch}>
+          <Icon name="close" size={16} />
+        </button>
+      {/if}
+    </div>
     <div class="filters" role="group" aria-label="Filter by type">
       {#each FILTERS as kind}
-        <button class="btn chip" aria-pressed={kinds.includes(kind)} data-testid="filter-{kind}" onclick={() => toggle(kind)}>
-          {KIND_LABEL[kind]}
+        {@const label = `Show only ${KIND_LABEL[kind]}s`}
+        <button
+          class="icon-btn chip" aria-pressed={kinds.includes(kind)} data-testid="filter-{kind}"
+          aria-label={label} title={label} onclick={() => toggle(kind)}
+        >
+          <KindIcon {kind} size={20} />
         </button>
       {/each}
     </div>
-    <button class="btn" data-testid="refresh" disabled={!connected || status.syncing} onclick={onRefresh}>
-      {status.syncing ? "Refreshing…" : "Refresh"}
+    <button
+      class="icon-btn" data-testid="refresh" aria-label={refreshLabel} title={refreshLabel}
+      disabled={!connected || status.syncing} onclick={onRefresh}
+    >
+      <span class:spinning={status.syncing} class="spin-wrap"><Icon name="refresh" size={18} /></span>
     </button>
   </div>
 
   {#if searching}
     <p class="muted" data-testid="result-count">
       {rows.length} {rows.length === 1 ? "result" : "results"} in the whole library
-      <button class="crumb" data-testid="clear-search" onclick={clearSearch}>Clear search</button>
     </p>
   {:else}
     <nav aria-label="Folder path" data-testid="breadcrumbs">
-      <button class="crumb" onclick={() => (folder = null)}>My tablet</button>
+      <button class="crumb home" aria-label="My tablet" title="My tablet" onclick={() => (folder = null)}>
+        <Icon name="tablet" size={18} />
+      </button>
       {#each trail as f (f.id)}
-        <span class="muted">/</span>
+        <span class="muted sep"><Icon name="chevron" size={14} /></span>
         <button class="crumb" onclick={() => (folder = f.id)}>{f.title}</button>
       {/each}
     </nav>
@@ -109,8 +127,8 @@
             <KindIcon kind={rec.kind} />
             <span class="title">{rec.title}</span>
             {#if searching}<span class="where muted">{locationOf(library, rec)}</span>{/if}
-            <span class="kind muted">{KIND_LABEL[rec.kind]}</span>
             <span class="date muted">{formatModified(rec.modified)}</span>
+            <span class="go muted">{#if rec.kind === "folder"}<Icon name="chevron" size={16} />{/if}</span>
           </button>
         </li>
       {/each}
@@ -128,12 +146,19 @@
   .notice h2 { font-size: 1rem; display: flex; align-items: center; gap: 8px; }
   .notice ul { margin: 0; padding-left: 22px; }
   .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  input { flex: 1 1 220px; font: inherit; color: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+  .search { position: relative; flex: 1 1 220px; display: flex; align-items: center; }
+  .search-icon { position: absolute; left: 9px; display: inline-flex; pointer-events: none; }
+  .search .clear { position: absolute; right: 3px; width: 28px; height: 28px; }
+  input::-webkit-search-cancel-button { display: none; }
+  input { flex: 1;  font: inherit; color: inherit; padding: 7px 34px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
   .filters { display: flex; gap: 6px; }
-  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+  .chip[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--hover); }
+  .spin-wrap { display: inline-flex; }
   nav { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .crumb { border: 0; background: none; padding: 2px 4px; border-radius: 4px; color: var(--accent); }
   .crumb:hover { background: var(--hover); }
+  .crumb.home { display: inline-flex; padding: 3px; }
+  .sep { display: inline-flex; }
   .rows { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
   .rows li + li { border-top: 1px solid var(--border); }
   .row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 9px 14px; border: 0; background: none; text-align: left; }
@@ -141,8 +166,8 @@
   .row:not(:disabled):hover { background: var(--hover); }
   .title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .where { flex: 0 1 30%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .kind { flex: 0 0 80px; }
   .date { flex: 0 0 110px; text-align: right; }
+  .go { flex: 0 0 16px; display: inline-flex; }
   .empty { padding: 32px; text-align: center; }
   .foot { font-size: 0.85rem; }
 </style>

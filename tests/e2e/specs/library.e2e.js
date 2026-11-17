@@ -13,7 +13,7 @@ describe("PaperBridge against the mock tablet", () => {
       timeout: 20_000,
       timeoutMsg: "never connected to the mock tablet",
     });
-    await expect($('[data-testid="privacy-badge"]')).toHaveText("Isolation unverified");
+    await expect($('[data-testid="privacy-badge"]')).toHaveAttribute("aria-label", "Isolation unverified");
     await $('[data-testid="first-run-continue"]').click();
     await expect($('[data-testid="library"]')).toBeDisplayed();
   });

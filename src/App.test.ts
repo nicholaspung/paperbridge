@@ -55,13 +55,14 @@ const titles = () => screen.getAllByTestId("row").map((r) => within(r).getByText
 it("shows the root folder, opens a folder, and navigates back", async () => {
   render(App);
   await waitFor(() => expect(titles()).toEqual(["Projects", "Scratch"]));
-  expect(screen.getByTestId("connection-badge")).toHaveTextContent("Connected");
+  expect(screen.getByTestId("connection-badge")).toHaveAttribute("aria-label", "Connected");
 
   await fireEvent.click(screen.getByText("Projects"));
   expect(titles()).toEqual(["A novel", "Design spec"]);
-  expect(screen.getByTestId("breadcrumbs")).toHaveTextContent("My tablet / Projects");
+  const crumbs = screen.getByTestId("breadcrumbs");
+  expect(within(crumbs).getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["My tablet", "Projects"]);
 
-  await fireEvent.click(screen.getByText("My tablet"));
+  await fireEvent.click(screen.getByRole("button", { name: "My tablet" }));
   expect(titles()).toEqual(["Projects", "Scratch"]);
 });
 
@@ -86,7 +87,7 @@ it("searches the whole library and filters by type", async () => {
 it("never claims isolation is verified", async () => {
   render(App);
   const badge = await screen.findByTestId("privacy-badge");
-  expect(badge).toHaveTextContent("Isolation unverified");
+  expect(badge).toHaveAttribute("aria-label", "Isolation unverified");
   await fireEvent.click(badge);
   expect(screen.getByTestId("privacy-panel")).toHaveTextContent("cannot confirm that the tablet is offline");
 });

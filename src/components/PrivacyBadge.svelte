@@ -1,18 +1,25 @@
 <script lang="ts">
   import type { PrivacyStatus } from "../lib/bindings/PrivacyStatus";
+  import Icon from "./Icon.svelte";
 
   let { privacy }: { privacy: PrivacyStatus } = $props();
   let open = $state(false);
   const warning = $derived(privacy.level === "warning");
+  const label = $derived(warning ? "Privacy warning" : "Isolation unverified");
 </script>
 
 <div class="wrap">
-  <button class="btn" data-testid="privacy-badge" data-level={privacy.level} aria-expanded={open} onclick={() => (open = !open)}>
-    <span class="dot {warning ? 'warning' : ''}"></span>
-    {warning ? "Privacy warning" : "Isolation unverified"}
+  <button
+    class="icon-btn plain badge" class:warning data-testid="privacy-badge" data-level={privacy.level}
+    aria-label={label} title={label} aria-expanded={open} onclick={() => (open = !open)}
+  >
+    <Icon name="shield" size={20} badge={warning ? "alert" : undefined} />
   </button>
   {#if open}
     <div class="panel" role="dialog" aria-label="Privacy details" data-testid="privacy-panel">
+      <button class="icon-btn plain close" aria-label="Close" title="Close" onclick={() => (open = false)}>
+        <Icon name="close" size={16} />
+      </button>
       <h3>{warning ? "Something needs your attention" : "Tablet isolation is not verified"}</h3>
       <p class="muted">
         PaperBridge itself only talks to the tablet over the USB cable and makes no internet
@@ -23,14 +30,16 @@
           <li class={f.severity}>{f.message}</li>
         {/each}
       </ul>
-      <button class="btn" onclick={() => (open = false)}>Close</button>
     </div>
   {/if}
 </div>
 
 <style>
   .wrap { position: relative; }
-  .btn { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .badge { color: var(--muted); }
+  .badge.warning { color: var(--warn); }
+  .close { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; }
+  h3 { padding-right: 28px; }
   .panel {
     position: absolute; right: 0; top: calc(100% + 8px); z-index: 10; width: min(420px, 90vw);
     background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
@@ -38,5 +47,4 @@
   }
   ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
   li.warning { color: var(--warn); font-weight: 600; }
-  .panel .btn { justify-self: end; }
 </style>

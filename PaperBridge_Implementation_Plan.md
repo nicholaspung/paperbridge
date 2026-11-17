@@ -1,15 +1,19 @@
 # PaperBridge — Implementation Plan
 
-**Version:** 1.4 · **Date:** 2026-11-12 · **Target:** Linux + macOS desktop, reMarkable 2 · **Primary dev environment:** Linux (Arch) · **Status:** specification for a coding agent
+**Version:** 1.4.1 · **Date:** 2026-11-12 · **Target:** Linux + macOS desktop, reMarkable 2 · **Primary dev environment:** Linux (Arch) · **Status:** specification for a coding agent
 
 ## 0. Changes
+
+**v1.4.1:**
+- **One tablet, one user.** No device profiles, tablet naming, or matching a connected tablet to a backup history. Whatever answers on the USB link is "the tablet" (§6).
+- The UI uses icons for actions and document types, with the text kept as tooltips and accessible labels.
 
 **v1.4 (Phase 1 as built):**
 - **No thumbnails and no `pbthumb://` scheme.** The endpoint is unsafe (v1.3.1), so the library shows type icons and the CSP allows no custom scheme.
 - **The library is walked in full on connect** (12 requests, well under a second on the owner's tablet) and cached in SQLite; the UI only ever reads the cache. The walk ends by listing the root.
 - **Connection states changed:** `WebInterfaceUnreachable` is split into `WebInterfaceOff` (port 80 refused) and `WebInterfaceHung` (accepts, never answers).
 - **Linux privacy check:** a reMarkable USB interface without a tablet-assigned address is the warning signal (it is what NetworkManager's "shared" mode produces). NAT rules are not inspected.
-- **Deferred from Phase 1:** device profiles for more than one tablet (§6), USB verification of the interface on macOS, and macOS host privacy checks. The app says "unverified" on macOS and accepts a subnet match there.
+- **Deferred from Phase 1:** USB verification of the interface on macOS, and macOS host privacy checks. The app says "unverified" on macOS and accepts a subnet match there.
 - **Linux/NVIDIA/Wayland:** the app disables WebKitGTK's DMA-BUF renderer for itself to avoid a startup crash (`docs/PLATFORM_NOTES.md`).
 - TypeScript types are generated with `ts-rs` and committed; CI fails if they are stale.
 
@@ -27,7 +31,7 @@
 - **macOS Local Network behavior** is confirmed with the first CI-built `.app` in Phase 1, not with `pb-probe`, because a CLI inherits Terminal's permission (§3.2, §9).
 - **Backups are self-describing:** JSON manifests in the backup folder are the source of truth, SQLite is a rebuildable index, and documents are stored as plain named copies (§3.1, §7.3).
 - **Read-only SSH diagnostics move up to Phase 3 (v1.0)**, which is what makes the "verified" privacy state reachable. **Basic host-side privacy checks move down to Phase 1.**
-- **Device identity** is a user-named profile; firmware is entered by hand or read over SSH (§6).
+- **Device identity** is a user-named profile; firmware is entered by hand or read over SSH (§6). *(Profiles dropped in v1.4.1.)*
 - **Library is served from cache during transfers** (§5).
 - **Phase 0 is its own assignment** and ends before the mock and app are built (§11).
 - Smaller fixes: CI step order, no hard-link fallback on exFAT, IP forwarding alone is informational, `reqwest` built without TLS.
@@ -97,7 +101,7 @@ Build a polished cross-platform desktop app (Linux and macOS) that manages a reM
   - Do **not** enable `tauri-plugin-http` or `tauri-plugin-shell`.
 - **HTTP client:** `reqwest` with `default-features = false` and **no TLS feature**. The device speaks plain HTTP, so the binary carries no TLS stack until Readwise (Phase 4) adds `rustls-tls` for a separate client.
   - The device client must be built with `.no_proxy()` and `redirect::Policy::none()`.
-- **Persistent metadata:** SQLite through `rusqlite` with the `bundled` feature, so the SQLite version is the same on every OS. Store device profiles, document metadata, import history, hashes, errors, and known firmware/API capabilities there. Keep actual document content as native files.
+- **Persistent metadata:** SQLite through `rusqlite` with the `bundled` feature, so the SQLite version is the same on every OS. Store document metadata, import history, hashes, errors, and known firmware/API capabilities there. Keep actual document content as native files.
   - SQLite is an **index of** the backup manifests, not their home. The source of truth is a JSON manifest per snapshot inside the backup folder (§7.3), and the index can be rebuilt from those files.
 - **Paths:** use Tauri's path API / the `directories` crate. Never hard-code locations.
 
@@ -401,18 +405,17 @@ paperbridge/
 
 Design an abstraction instead of binding the UI directly to raw firmware JSON:
 
-- `DeviceIdentity`: a locally generated profile ID, a **user-chosen tablet name**, optional firmware version, session capability flags, connection state.
-  - The USB HTTP interface is not known to expose model, serial, or firmware, and the USB serial string is `0`. Phase 0 confirms this.
+- `DeviceInfo`: optional firmware version, session capability flags, connection state. There is exactly one tablet, so there is no profile ID, tablet name, or tablet matching.
+  - The USB HTTP interface does not expose model, serial, or firmware, and the USB serial string is `0` (confirmed in Phase 0).
   - Firmware is typed in by the owner (Settings → General → Software on the tablet) or read over SSH once that exists. `pb-probe` takes it as `--firmware`.
-  - On connect, match the tablet to a profile by overlap between its document IDs and the profile's last manifest. Ask the user when there is no clear match, so two tablets never share a backup history.
 - `DocumentRecord`: opaque `id` (validated UUID), title, type (`folder`, `pdf`, `epub`, `notebook`, `unknown`), parent ID, optional dates/size/thumbnail.
 - `TransferJob`: `jobId`, operation (`import`, `pdf-export`, `rmdoc-backup`), source/destination, status, retries, bytes written, error.
-- `BackupManifest`: snapshot ID, timestamp, device identity, document ID, content format, SHA-256, source metadata, local relative path, completeness marker.
+- `BackupManifest`: snapshot ID, timestamp, firmware version (if known), document ID, content format, SHA-256, source metadata, local relative path, completeness marker.
 - `ConnectionState`, `PrivacyStatus`: explicit enums (§4.1, §7.2).
 
 Use explicit result/error types with semantic error codes, serialized to the UI as tagged unions. Generate the TypeScript types from Rust (for example with `specta`/`tauri-specta` or `ts-rs`) so the two sides cannot drift. Avoid stringly typed exception handling in the UI. Build `pb-mock-tablet` first so most development and tests need no physical device.
 
-**Thumbnails in the UI:** serve cached thumbnails through a custom URI scheme registered in Rust (for example `pbthumb://`). The webview never talks to the tablet, and the CSP only has to allow that scheme.
+**Thumbnails in the UI:** none (v1.4). Rows show a type icon; the webview never talks to the tablet.
 
 ## 7. Privacy, security, and trust model
 
