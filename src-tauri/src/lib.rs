@@ -140,6 +140,7 @@ pub fn run() {
             open::dismiss_job,
             open::get_job,
             open::get_document_file,
+            open::get_annotated_pages,
             open::open_external
         ])
         .run(tauri::generate_context!())

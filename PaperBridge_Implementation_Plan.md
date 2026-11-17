@@ -1,8 +1,13 @@
 # PaperBridge — Implementation Plan
 
-**Version:** 1.7 · **Date:** 2026-11-12 · **Target:** Linux + macOS desktop, reMarkable 2 · **Primary dev environment:** Linux (Arch) · **Status:** specification for a coding agent
+**Version:** 1.8 · **Date:** 2026-11-12 · **Target:** Linux + macOS desktop, reMarkable 2 · **Primary dev environment:** Linux (Arch) · **Status:** specification for a coding agent
 
 ## 0. Changes
+
+**v1.8 (annotated pages only):**
+- **The annotations view of a book starts with only its annotated pages**; a highlighter toggle shows every page (and back), keeping the reading position. PDFs have the same toggle but start on every page; notebooks have none.
+- The tablet still renders the whole PDF (there is no page-range export); the saving is in reading, not rendering. Which pages are annotated comes from the `.rmdoc` (quick, nothing rendered): pages with `<id>/<page>.rm` strokes or `<id>.highlights/<page>.json`, numbered by the `.content` page list (format 1 `pages`, format 2 `cPages` ordered by `idx`, deleted pages skipped). Stored as `annotated.json` next to the cached PDF and refreshed when the document changes. If the page counts of the archive and the PDF disagree, the filter is not offered.
+- Strokes are not parsed, so a page whose strokes were all erased may still be listed. Drawing annotations in the app (no tablet rendering) remains a possible experiment.
 
 **v1.7 (books as EPUB):**
 - **EPUBs open as the original book** in a built-in reader (foliate-js 1.0.1, MIT, lazy-loaded): paginated, contents menu, text size, reading position remembered per book (local storage, a convenience only). A two-button switch shows the tablet's annotated PDF instead; notebooks and PDFs have no switch.

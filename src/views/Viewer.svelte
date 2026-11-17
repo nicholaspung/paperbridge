@@ -1,15 +1,17 @@
 <script lang="ts">
-  import { onDestroy, onMount, type Snippet } from "svelte";
+  import { onDestroy, onMount, tick, type Snippet } from "svelte";
   import Icon from "../components/Icon.svelte";
   import * as ipc from "../lib/ipc";
   import type { PDFDocumentProxy } from "../lib/pdf";
 
-  let { id, title, onClose, onExternal, switcher }: {
+  let { id, title, onClose, onExternal, switcher, annotatedFirst = false }: {
     id: string;
     title: string;
     onClose: () => void;
     onExternal: () => void;
     switcher?: Snippet;
+    /** Start with only the annotated pages showing (books). */
+    annotatedFirst?: boolean;
   } = $props();
 
   const MIN = 0.25;
@@ -25,6 +27,13 @@
   let width = $state(0);
   let current = $state(1);
   let scroller: HTMLDivElement | undefined = $state();
+  /** 1-based numbers of the pages with annotations; null when unknown. */
+  let annotated = $state<number[] | null>(null);
+  let onlyAnnotated = $state(false);
+
+  const all = $derived(sizes.map((_, i) => i + 1));
+  const filtering = $derived(onlyAnnotated && annotated !== null);
+  const shown = $derived(filtering ? annotated!.filter((p) => p >= 1 && p <= sizes.length) : all);
 
   const widest = $derived(sizes.reduce((m, s) => Math.max(m, s.w), 1));
   // Fit the width, but do not blow a page up past twice its size.
@@ -32,7 +41,7 @@
   const scale = $derived(fit ? fitScale : manualScale);
 
   // Pages render lazily as they come near the viewport, and again at a new zoom.
-  const pageEls: HTMLDivElement[] = [];
+  const pageEls = new Map<number, HTMLDivElement>();
   const visible = new Set<number>();
   const renderedAt = new Map<number, number>();
   const tasks = new Map<number, { cancel(): void }>();
@@ -41,7 +50,11 @@
 
   onMount(async () => {
     try {
-      const [{ loadPdf }, bytes] = await Promise.all([import("../lib/pdf"), ipc.getDocumentFile(id, "pdf")]);
+      const [{ loadPdf }, bytes, marks] = await Promise.all([
+        import("../lib/pdf"),
+        ipc.getDocumentFile(id, "pdf"),
+        ipc.getAnnotatedPages(id).catch(() => null),
+      ]);
       const { doc: loaded, destroy } = await loadPdf(bytes);
       release = destroy;
       const pages = await Promise.all(
@@ -51,7 +64,13 @@
         }),
       );
       doc = loaded;
+      // Page numbers only line up if the archive and the PDF agree on the count.
+      if (marks && marks.total === loaded.numPages) {
+        annotated = marks.pages;
+        onlyAnnotated = annotatedFirst;
+      }
       sizes = pages;
+      current = shown[0] ?? 1;
     } catch (e) {
       error = `Could not show this PDF: ${e instanceof Error ? e.message : String(e)}`;
     }
@@ -79,7 +98,7 @@
   });
 
   async function render(n: number) {
-    const el = pageEls[n - 1];
+    const el = pageEls.get(n);
     if (!doc || !el || renderedAt.get(n) === scale) return;
     tasks.get(n)?.cancel();
     const target = scale;
@@ -97,13 +116,13 @@
     } catch {
       return; // cancelled by a newer render
     }
-    if (renderedAt.get(n) !== target) return;
+    if (renderedAt.get(n) !== target || pageEls.get(n) !== el) return;
     el.replaceChildren(canvas);
     el.dataset.rendered = "true";
   }
 
   function lazy(el: HTMLDivElement, n: number) {
-    pageEls[n - 1] = el;
+    pageEls.set(n, el);
     observer ??= new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
@@ -117,7 +136,17 @@
       { root: scroller, rootMargin: "800px 0px" },
     );
     observer.observe(el);
-    return { destroy: () => observer?.unobserve(el) };
+    return {
+      destroy: () => {
+        observer?.unobserve(el);
+        if (pageEls.get(n) === el) {
+          pageEls.delete(n);
+          visible.delete(n);
+          renderedAt.delete(n);
+          tasks.get(n)?.cancel();
+        }
+      },
+    };
   }
 
   // A new zoom level: re-render what is on screen; the rest re-renders on approach.
@@ -129,9 +158,21 @@
   function onScroll() {
     if (!scroller) return;
     const mid = scroller.scrollTop + scroller.clientHeight / 3;
-    let n = 1;
-    for (let i = 0; i < pageEls.length; i++) if (pageEls[i] && pageEls[i].offsetTop <= mid) n = i + 1;
+    let n = shown[0] ?? 1;
+    for (const p of shown) {
+      const el = pageEls.get(p);
+      if (el && el.offsetTop <= mid) n = p;
+    }
     current = n;
+  }
+
+  async function toggleAnnotated() {
+    const keep = current;
+    onlyAnnotated = !onlyAnnotated;
+    await tick();
+    const target = shown.includes(keep) ? keep : shown[0];
+    if (target) pageEls.get(target)?.scrollIntoView({ block: "start" });
+    onScroll();
   }
 
   function zoom(factor: number) {
@@ -156,10 +197,25 @@
     </button>
     <strong class="title" title={title}>{title}</strong>
     {#if sizes.length}
-      <span class="muted pages" data-testid="viewer-pages">{current} / {sizes.length}</span>
+      <span class="muted pages" data-testid="viewer-pages">
+        {#if filtering}
+          page {current} · {shown.length} annotated
+        {:else}
+          {current} / {sizes.length}
+        {/if}
+      </span>
     {/if}
     <span class="spacer"></span>
     {#if sizes.length}
+    {#if annotated !== null}
+      {@const label = onlyAnnotated ? "Show all pages" : "Show only annotated pages"}
+      <button
+        class="icon-btn plain" data-testid="toggle-annotated" aria-pressed={onlyAnnotated}
+        aria-label={label} title={label} onclick={toggleAnnotated}
+      >
+        <Icon name="highlighter" size={18} />
+      </button>
+    {/if}
     <button class="icon-btn plain" aria-label="Zoom out" title="Zoom out (−)" onclick={() => zoom(1 / 1.25)} disabled={scale <= MIN}>
       <Icon name="zoomOut" size={18} />
     </button>
@@ -182,12 +238,19 @@
       <p class="msg" role="alert">{error}</p>
     {:else if !sizes.length}
       <p class="msg muted"><span class="spinning"><Icon name="spinner" size={20} /></span></p>
+    {:else if shown.length === 0}
+      <div class="msg empty" data-testid="no-annotations">
+        <p>No annotated pages in “{title}”.</p>
+        <button class="btn" data-testid="show-all-pages" onclick={toggleAnnotated}>Show all {sizes.length} pages</button>
+      </div>
     {:else}
-      {#each sizes as s, i (i)}
+      {#each shown as n (n)}
+        {@const s = sizes[n - 1]}
+        {#if filtering}<p class="label muted">Page {n}</p>{/if}
         <div
-          class="page" data-testid="pdf-page" data-page={i + 1}
+          class="page" data-testid="pdf-page" data-page={n}
           style:width="{Math.floor(s.w * scale)}px" style:height="{Math.floor(s.h * scale)}px"
-          use:lazy={i + 1}
+          use:lazy={n}
         ></div>
       {/each}
     {/if}
@@ -202,8 +265,10 @@
   .zoom { width: 46px; text-align: center; font-variant-numeric: tabular-nums; font-size: 0.9rem; }
   .spacer { flex: 1; }
   .icon-btn[aria-pressed="true"] { color: var(--accent); }
-  .scroll { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 16px; background: var(--bg); }
+  .scroll { position: relative; flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 16px; background: var(--bg); }
   .page { flex: none; margin: 0 auto; background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 0.18); }
   .page :global(canvas) { display: block; width: 100%; height: 100%; }
   .msg { margin: auto; }
+  .empty { display: grid; gap: 12px; justify-items: center; text-align: center; }
+  .label { margin: 0 auto -8px; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 </style>

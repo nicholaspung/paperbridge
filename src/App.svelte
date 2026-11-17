@@ -59,7 +59,7 @@
               />
             {:else}
               <Viewer
-                id={app.viewing.id} title={app.viewing.title} {switcher}
+                id={app.viewing.id} title={app.viewing.title} {switcher} annotatedFirst={viewedKind === "epub"}
                 onClose={() => app.closeViewer()} onExternal={() => app.openExternal()}
               />
             {/if}

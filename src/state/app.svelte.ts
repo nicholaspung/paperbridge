@@ -71,7 +71,7 @@ class AppStore {
 
   get jobActive(): boolean {
     const p = this.job?.phase.phase;
-    return p === "waiting" || p === "checking" || p === "rendering" || p === "receiving" || p === "opening";
+    return p === "waiting" || p === "checking" || p === "scanning" || p === "rendering" || p === "receiving" || p === "opening";
   }
 
   /** Books open as their original EPUB; everything else as the tablet's PDF. */

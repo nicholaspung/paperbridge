@@ -135,16 +135,31 @@ enum Reply {
     Silence,
 }
 
-/// A small valid one-page PDF, padded so it arrives in several chunks.
+/// Pages in the mock exports. Page 2 is the one with annotations.
+pub const MOCK_PAGES: u32 = 3;
+
+/// A small valid three-page PDF, padded so it arrives in several chunks.
 pub fn mock_pdf() -> Vec<u8> {
-    let text = "BT /F1 24 Tf 72 720 Td (PaperBridge mock export) Tj ET";
-    let objs = [
+    let n = MOCK_PAGES as usize;
+    // Objects: 1 catalog, 2 pages, 3..3+n page objects, then n contents, then the font.
+    let font = 3 + 2 * n;
+    let kids: Vec<String> = (0..n).map(|i| format!("{} 0 R", 3 + i)).collect();
+    let mut objs = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>".to_string(),
-        format!("<< /Length {} >>\nstream\n{text}\nendstream", text.len()),
-        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        format!("<< /Type /Pages /Kids [{}] /Count {n} >>", kids.join(" ")),
     ];
+    for i in 0..n {
+        objs.push(format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 445 594] /Resources << /Font << /F1 {font} 0 R >> >> /Contents {} 0 R >>",
+            3 + n + i
+        ));
+    }
+    for i in 0..n {
+        let mark = if i == 1 { " 0.2 0.3 0.8 RG 3 w 60 300 m 200 360 l 380 280 l S" } else { "" };
+        let text = format!("BT /F1 24 Tf 60 520 Td (PaperBridge mock page {}) Tj ET{mark}", i + 1);
+        objs.push(format!("<< /Length {} >>\nstream\n{text}\nendstream", text.len()));
+    }
+    objs.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string());
     let mut out = b"%PDF-1.4\n".to_vec();
     let mut offsets = Vec::new();
     for (i, o) in objs.iter().enumerate() {
@@ -231,7 +246,12 @@ pub fn mock_epub() -> Vec<u8> {
 /// A `.rmdoc` shaped like the tablet's: metadata files, plus the original
 /// document and the tablet's PDF for imported books.
 pub fn mock_rmdoc(id: &str, file_type: &str) -> Vec<u8> {
-    let content = format!(r#"{{"fileType":"{file_type}","formatVersion":1,"pageCount":1}}"#);
+    let page_ids: Vec<String> = (1..=MOCK_PAGES).map(|i| format!("00000000-0000-4000-8000-0000000000a{i}")).collect();
+    let content = serde_json::to_string(&json!({
+        "fileType": file_type, "formatVersion": 1, "pageCount": MOCK_PAGES, "pages": page_ids,
+    }))
+    .unwrap();
+    let strokes = format!("{id}/{}.rm", page_ids[1]);
     let metadata = br#"{"type":"DocumentType","visibleName":"Mock"}"#;
     let pdf = mock_pdf();
     let epub = mock_epub();
@@ -239,6 +259,8 @@ pub fn mock_rmdoc(id: &str, file_type: &str) -> Vec<u8> {
         (format!("{id}.content"), format!("{id}.metadata"), format!("{id}.pdf"), format!("{id}.epub"));
     let mut entries: Vec<(&str, &[u8], bool)> =
         vec![(&n_meta, metadata.as_slice(), false), (&n_content, content.as_bytes(), false)];
+    // Page 2 carries strokes; the bytes are not a real stroke file.
+    entries.push((&strokes, b"reMarkable .lines file, version=6          ", false));
     match file_type {
         "pdf" => entries.push((&n_pdf, &pdf, false)),
         "epub" => {

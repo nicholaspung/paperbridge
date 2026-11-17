@@ -14,7 +14,7 @@ macOS has no WebDriver for its webview, so these are checked by hand on every ma
 - [ ] Plug back in: it reconnects and refreshes by itself.
 - [ ] Switch off the USB web interface on the tablet, press Refresh after reconnecting: the app explains which setting to switch on.
 - [ ] The privacy button says "Isolation unverified" (never "verified").
-- [ ] Click an EPUB: it opens as the book in the reader (pages turn with the arrows and arrow keys, the contents menu jumps, text size changes, and it reopens where you left off). The switch at the top shows the annotated PDF instead.
+- [ ] Click an EPUB: it opens as the book in the reader (pages turn with the arrows and arrow keys, the contents menu jumps, text size changes, and it reopens where you left off). The switch at the top shows the annotated PDF instead, starting with only the annotated pages (each labelled with its page number); the highlighter button shows every page and back. A book without annotations says so and offers all pages. Check the shown pages match where you wrote or highlighted on the tablet.
 - [ ] Click a PDF and a notebook: each shows in PaperBridge's viewer with its annotations; zoom, fit-width and scrolling work; Esc goes back to the same folder.
 - [ ] The "open in the default PDF app" button opens the same file in Preview / the system viewer.
 - [ ] Open the same document again without changing it: it shows quickly, "from the copy on this computer".

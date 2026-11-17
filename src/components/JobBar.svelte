@@ -11,7 +11,7 @@
 
   const phase = $derived(job?.phase.phase);
   const active = $derived(
-    phase === "waiting" || phase === "checking" || phase === "rendering" || phase === "receiving" || phase === "opening",
+    phase === "waiting" || phase === "checking" || phase === "scanning" || phase === "rendering" || phase === "receiving" || phase === "opening",
   );
   let now = $state(Date.now());
 
@@ -60,6 +60,8 @@
         {@const t = `“${job.title}”`}
         {#if job.phase.phase === "checking"}
           <span>Checking the tablet for changes to {t}…</span>
+        {:else if job.phase.phase === "scanning"}
+          <span>Finding the annotated pages of {t}…</span>
         {:else if job.phase.phase === "waiting"}
           <span>Waiting for the library refresh to finish before preparing {t}…</span>
         {:else if job.phase.phase === "rendering"}

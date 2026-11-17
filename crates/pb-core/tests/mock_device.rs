@@ -232,3 +232,16 @@ async fn exports_an_rmdoc_and_extracts_the_original_epub() {
     assert_eq!(std::fs::read(&dest).unwrap(), pb_mock_tablet::mock_epub());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[tokio::test]
+async fn finds_annotated_pages_from_an_rmdoc() {
+    let (_mock, device) = setup().await;
+    let all = device.walk().await.unwrap();
+    let id = all.into_iter().find(|r| r.kind == DocKind::Pdf).unwrap().id;
+    let dir = export_dir("ann");
+    let archive = dir.join("a.rmdoc");
+    device.export(&id, ExportFormat::Rmdoc, &archive, 1 << 30, &mut |_| {}).await.unwrap();
+    let ann = pb_core::rmdoc::annotated_pages(&archive, &id, &Default::default()).unwrap();
+    assert_eq!((ann.total, ann.pages), (pb_mock_tablet::MOCK_PAGES, vec![2]));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

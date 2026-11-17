@@ -55,6 +55,8 @@ pub enum JobPhase {
     Waiting,
     /// Asking the tablet whether the document changed since the cached copy.
     Checking,
+    /// Reading the native archive to find the pages with annotations.
+    Scanning,
     /// Request sent; the tablet renders the whole PDF before it answers.
     Rendering,
     Receiving {
@@ -97,6 +99,46 @@ pub struct Job {
 pub struct Jobs {
     pub current: Option<Job>,
     abort: Option<tauri::async_runtime::JoinHandle<()>>,
+}
+
+/// Which pages had annotations when the document had this modified time.
+#[derive(Serialize, Deserialize)]
+struct AnnotationsEntry {
+    modified: Option<String>,
+    #[serde(flatten)]
+    pages: pb_core::rmdoc::AnnotatedPages,
+}
+
+const ANNOTATIONS: &str = "annotated.json";
+
+fn read_annotations(dir: &Path) -> Option<AnnotationsEntry> {
+    serde_json::from_slice(&std::fs::read(dir.join(ANNOTATIONS)).ok()?).ok()
+}
+
+/// Downloads the native archive (quick: nothing is rendered) and records
+/// which pages carry annotations. Failure only means no page filter.
+async fn scan_annotations(device: &Device, rec: &DocumentRecord, dir: &Path, modified: &Option<String>) {
+    let _ = std::fs::remove_file(dir.join(ANNOTATIONS));
+    let archive = TempFile::new_in(dir, "rmdoc");
+    if device
+        .export(&rec.id, ExportFormat::Rmdoc, archive.path(), EXPORT_CAP, &mut |_| {})
+        .await
+        .is_err()
+    {
+        return;
+    }
+    let (src, id) = (archive.path().to_path_buf(), rec.id.clone());
+    let found = tauri::async_runtime::spawn_blocking(move || {
+        pb_core::rmdoc::annotated_pages(&src, &id, &Default::default())
+    })
+    .await;
+    if let Ok(Ok(pages)) = found {
+        let entry = AnnotationsEntry { modified: modified.clone(), pages };
+        let tmp = dir.join(".annotated.json.tmp");
+        if std::fs::write(&tmp, serde_json::to_vec(&entry).unwrap()).is_ok() {
+            let _ = std::fs::rename(tmp, dir.join(ANNOTATIONS));
+        }
+    }
 }
 
 /// What the cache remembers about an exported copy.
@@ -180,7 +222,7 @@ fn commit_cache(dir: &Path, modified: &Option<String>, file: &Path) -> std::io::
     let name = file.file_name().unwrap().to_string_lossy().into_owned();
     for entry in std::fs::read_dir(dir)?.flatten() {
         let n = entry.file_name().to_string_lossy().into_owned();
-        if n != name && !n.starts_with(".pb-") {
+        if n != name && n != ANNOTATIONS && !n.starts_with(".pb-") {
             let _ = std::fs::remove_file(entry.path());
         }
     }
@@ -271,6 +313,14 @@ async fn fetch(
             None
         }
     };
+    // Books and PDFs: find the annotated pages (the viewer can show only
+    // those). Notebooks are all handwriting, so there is nothing to filter.
+    let filterable = format == ViewFormat::Pdf && matches!(rec.kind, DocKind::Epub | DocKind::Pdf);
+    if filterable && read_annotations(dir).is_none_or(|a| modified.is_none() || a.modified != modified) {
+        set_phase(app, state, JobPhase::Scanning);
+        std::fs::create_dir_all(dir).map_err(|e| format!("Could not create the cache folder: {e}"))?;
+        scan_annotations(&device, rec, dir, &modified).await;
+    }
     if let Some(path) = cached_copy(dir, format, &modified) {
         update_job(app, state, |j| j.from_cache = true);
         return Ok(path);
@@ -424,6 +474,14 @@ pub fn get_document_file(state: Shared, id: String, format: ViewFormat) -> Resul
         .ok_or("This document has not been opened yet.")?;
     let bytes = std::fs::read(path).map_err(|e| format!("Could not read the saved file: {e}"))?;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Which pages of a document's PDF carry annotations, as last scanned.
+/// `None` when unknown (notebooks, or the scan failed).
+#[tauri::command]
+pub fn get_annotated_pages(state: Shared, id: String) -> Result<Option<pb_core::rmdoc::AnnotatedPages>, String> {
+    let id = DocId::parse(&id).map_err(|e| e.to_string())?;
+    Ok(read_annotations(&cache_dir_for(&state, &id, ViewFormat::Pdf)).map(|a| a.pages))
 }
 
 /// Opens the cached file of a document in the system's default app.

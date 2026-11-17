@@ -29,6 +29,7 @@
     zoomOut: ["M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16z", "M21 21l-4.3-4.3", "M8 11h6"],
     fitWidth: ["M3 5v14", "M21 5v14", "M7 12h10", "M10 9l-3 3 3 3", "M14 9l3 3-3 3"],
     external: ["M15 3h6v6", "M10 14 21 3", "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"],
+    highlighter: ["m9 11-6 6v3h9l3-3", "m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"],
     download: ["M12 3v12", "M7 10l5 5 5-5", "M5 21h14"],
   } as const;
   export type IconName = keyof typeof PATHS;

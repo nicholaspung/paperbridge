@@ -100,6 +100,11 @@ describe("PaperBridge against the mock tablet", () => {
       timeout: 20_000,
       timeoutMsg: "the annotated PDF was not shown",
     });
+    // Only the annotated page (the mock marks page 2 of 3), then all pages.
+    const pageNumbers = async () => Promise.all((await $$('[data-testid="pdf-page"]')).map((p) => p.getAttribute("data-page")));
+    expect(await pageNumbers()).toEqual(["2"]);
+    await $('[data-testid="toggle-annotated"]').click();
+    await browser.waitUntil(async () => (await pageNumbers()).join() === "1,2,3", { timeoutMsg: "all pages did not appear" });
     await $('[data-testid="viewer-close"]').click();
     await expect($('[data-testid="library"]')).toBeDisplayed();
     if (await $('[data-testid="job-dismiss"]').isExisting()) await $('[data-testid="job-dismiss"]').click();

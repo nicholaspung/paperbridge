@@ -47,6 +47,7 @@ let backend: {
   calls: string[];
   opened: unknown[];
   refuseOpen: string | null;
+  marks: { total: number; pages: number[] } | null;
 };
 
 beforeEach(() => {
@@ -57,6 +58,7 @@ beforeEach(() => {
     calls: [],
     opened: [],
     refuseOpen: null,
+    marks: { total: 2, pages: [2] },
   };
   app.status = null;
   app.settings = null;
@@ -78,6 +80,8 @@ beforeEach(() => {
       case "get_job": return null;
       case "get_document_file": return new Uint8Array([37, 80, 68, 70, 45]).buffer;
       case "open_external": return null;
+      case "get_annotated_pages":
+        return ["d2", "d3"].includes((args as { id: string }).id) ? backend.marks : null;
       case "open_document":
         if (backend.refuseOpen) throw backend.refuseOpen;
         backend.opened.push((args as { id: string; format: string }).id + ":" + (args as { format: string }).format);
@@ -233,6 +237,15 @@ it("opens a book as its EPUB and can switch to the annotated PDF", async () => {
   expect(await screen.findByTestId("viewer")).toBeInTheDocument();
   expect(screen.queryByTestId("epub-reader")).toBeNull();
   expect(screen.getByTestId("show-pdf")).toHaveAttribute("aria-pressed", "true");
+
+  // A book's annotations view starts with only the annotated pages.
+  await waitFor(() => expect(screen.getAllByTestId("pdf-page").map((p) => p.dataset.page)).toEqual(["2"]));
+  expect(screen.getByTestId("viewer-pages")).toHaveTextContent("page 2 · 1 annotated");
+  const toggle = screen.getByTestId("toggle-annotated");
+  expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await fireEvent.click(toggle);
+  await waitFor(() => expect(screen.getAllByTestId("pdf-page").map((p) => p.dataset.page)).toEqual(["1", "2"]));
+  expect(toggle).toHaveAttribute("aria-pressed", "false");
 });
 
 it("offers no EPUB switch for notebooks", async () => {
@@ -242,4 +255,27 @@ it("offers no EPUB switch for notebooks", async () => {
   await emit("job-changed", job({ phase: "done" }));
   await screen.findByTestId("viewer");
   expect(screen.queryByTestId("show-epub")).toBeNull();
+});
+
+it("shows a way out when a book has no annotated pages", async () => {
+  backend.marks = { total: 2, pages: [] };
+  render(App);
+  await waitFor(() => screen.getAllByTestId("row"));
+  await fireEvent.click(screen.getByText("Projects"));
+  await fireEvent.click(screen.getByText("A novel"));
+  await emit("job-changed", job({ phase: "done" }, { documentId: "d3", title: "A novel", format: "pdf" }));
+  expect(await screen.findByTestId("no-annotations")).toHaveTextContent("No annotated pages in “A novel”");
+  await fireEvent.click(screen.getByTestId("show-all-pages"));
+  await waitFor(() => expect(screen.getAllByTestId("pdf-page")).toHaveLength(2));
+});
+
+it("starts PDFs on every page, with the annotated filter available", async () => {
+  backend.marks = { total: 2, pages: [1] };
+  render(App);
+  await waitFor(() => screen.getAllByTestId("row"));
+  await fireEvent.click(screen.getByText("Projects"));
+  await fireEvent.click(screen.getByText("Design spec"));
+  await emit("job-changed", job({ phase: "done" }, { documentId: "d2", title: "Design spec", format: "pdf" }));
+  await waitFor(() => expect(screen.getAllByTestId("pdf-page")).toHaveLength(2));
+  expect(screen.getByTestId("toggle-annotated")).toHaveAttribute("aria-pressed", "false");
 });
