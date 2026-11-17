@@ -116,3 +116,105 @@ async fn requests_are_serialized() {
     // Three 150 ms requests one at a time take at least 450 ms.
     assert!(started.elapsed() >= Duration::from_millis(440), "{:?}", started.elapsed());
 }
+
+// ---- Exports ----
+
+use pb_core::device::ExportFormat;
+use pb_core::DocId;
+
+fn export_dir(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("pb-export-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn leftovers(dir: &Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect()
+}
+
+async fn first_document(device: &Device) -> DocId {
+    let all = device.walk().await.unwrap();
+    all.into_iter().find(|r| r.kind == DocKind::Pdf).unwrap().id
+}
+
+#[tokio::test]
+async fn exports_a_pdf_atomically_with_progress() {
+    let (mock, device) = setup().await;
+    let id = first_document(&device).await;
+    let dir = export_dir("ok");
+    let dest = dir.join("Doc.pdf");
+    let mut seen = Vec::new();
+    let out = device
+        .export(&id, ExportFormat::Pdf, &dest, 1 << 30, &mut |b| seen.push(b))
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), pb_mock_tablet::mock_pdf());
+    assert_eq!(out.bytes, pb_mock_tablet::mock_pdf().len() as u64);
+    assert_eq!(seen.first(), Some(&0), "the first callback marks the first byte");
+    assert_eq!(seen.last(), Some(&out.bytes));
+    assert_eq!(leftovers(&dir), vec!["Doc.pdf"]);
+    assert!(mock.requests().last().unwrap().ends_with("/pdf"));
+
+    // A second export to the same name must not replace the first.
+    let err = device.export(&id, ExportFormat::Pdf, &dest, 1 << 30, &mut |_| {}).await.unwrap_err();
+    assert!(matches!(err, Error::Io(ref e) if e.kind() == std::io::ErrorKind::AlreadyExists), "{err}");
+    assert_eq!(leftovers(&dir), vec!["Doc.pdf"]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn rejects_an_export_that_is_not_a_pdf() {
+    let (mock, device) = setup().await;
+    let id = first_document(&device).await;
+    let dir = export_dir("bad");
+    mock.set_fault(Fault::Malformed);
+    let err = device
+        .export(&id, ExportFormat::Pdf, &dir.join("Doc.pdf"), 1 << 30, &mut |_| {})
+        .await
+        .unwrap_err();
+    assert!(matches!(err, Error::BadExport(_)), "{err}");
+    assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn export_cap_and_http_errors_leave_nothing() {
+    let (mock, device) = setup().await;
+    let id = first_document(&device).await;
+    let dir = export_dir("cap");
+    let err = device.export(&id, ExportFormat::Pdf, &dir.join("a.pdf"), 1000, &mut |_| {}).await.unwrap_err();
+    assert!(matches!(err, Error::TooLarge(1000)), "{err}");
+    mock.set_fault(Fault::Http(500));
+    let err = device.export(&id, ExportFormat::Pdf, &dir.join("a.pdf"), 1 << 30, &mut |_| {}).await.unwrap_err();
+    assert!(matches!(err, Error::UnsupportedResponse(_)), "{err}");
+    assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn first_byte_timeout_and_cancel_leave_nothing() {
+    let mock = MockTablet::start(fixtures(), 0).await.unwrap();
+    let device = Device::new(
+        &Target::Mock(mock.addr),
+        Timeouts { first_byte: Duration::from_millis(500), ..fast() },
+    )
+    .unwrap();
+    let id = first_document(&device).await;
+    let dir = export_dir("slow");
+    mock.set_fault(Fault::Render(3000));
+    let err = device.export(&id, ExportFormat::Pdf, &dir.join("a.pdf"), 1 << 30, &mut |_| {}).await.unwrap_err();
+    assert!(matches!(err, Error::Timeout(..)), "{err}");
+    assert!(matches!(classify(&err), ConnectionState::WebInterfaceHung));
+
+    // Cancelling is dropping the future.
+    let (dest, mut noop) = (dir.join("b.pdf"), |_| {});
+    let fut = device.export(&id, ExportFormat::Pdf, &dest, 1 << 30, &mut noop);
+    assert!(tokio::time::timeout(Duration::from_millis(200), fut).await.is_err());
+    assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

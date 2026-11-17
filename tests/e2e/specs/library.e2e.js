@@ -42,6 +42,34 @@ describe("PaperBridge against the mock tablet", () => {
     await browser.waitUntil(async () => (await rows().length) === 18);
   });
 
+  it("opens a document, then reopens it from the local copy", async () => {
+    const jobPhase = () => $('[data-testid="job-bar"]').getAttribute("data-phase");
+    await $('[data-testid="filter-pdf"]').click();
+    await browser.waitUntil(async () => (await rows().length) === 8, { timeoutMsg: "expected 8 PDFs" });
+    await rows()[0].click();
+    await browser.waitUntil(async () => (await jobPhase()) === "done", { timeout: 20_000, timeoutMsg: "export did not finish" });
+    await expect($('[data-testid="job-bar"]')).not.toHaveText(expect.stringContaining("from the copy on this computer"));
+    await $('[data-testid="job-dismiss"]').click();
+
+    await rows()[0].click();
+    await browser.waitUntil(async () => (await jobPhase()) === "done");
+    await expect($('[data-testid="job-bar"]')).toHaveText(expect.stringContaining("from the copy on this computer"));
+    await $('[data-testid="job-dismiss"]').click();
+  });
+
+  it("shows a slow export as rendering and can cancel it", async () => {
+    await fault("render");
+    await rows()[1].click();
+    const bar = $('[data-testid="job-bar"]');
+    await browser.waitUntil(async () => (await bar.getAttribute("data-phase")) === "rendering");
+    await expect(bar).toHaveText(expect.stringContaining("preparing"));
+    await $('[data-testid="job-cancel"]').click();
+    await browser.waitUntil(async () => (await bar.getAttribute("data-phase")) === "cancelled");
+    await fault("none");
+    await $('[data-testid="filter-pdf"]').click();
+    await browser.waitUntil(async () => (await rows().length) === 18);
+  });
+
   it("explains a hung tablet, keeps the cached library, and recovers", async () => {
     await fault("hang");
     await $('[data-testid="refresh"]').click();

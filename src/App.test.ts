@@ -1,5 +1,6 @@
 // The whole UI against a mocked Tauri backend.
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { emit } from "@tauri-apps/api/event";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import App from "./App.svelte";
@@ -17,7 +18,14 @@ const LIBRARY = [
   rec("d3", "f1", "A novel", "epub"),
 ];
 
-let backend: { firstRunDone: boolean; status: Status; library: DocumentRecord[]; calls: string[] };
+let backend: {
+  firstRunDone: boolean;
+  status: Status;
+  library: DocumentRecord[];
+  calls: string[];
+  opened: unknown[];
+  refuseOpen: string | null;
+};
 
 beforeEach(() => {
   backend = {
@@ -25,13 +33,17 @@ beforeEach(() => {
     status: { connection: { state: "connected" }, syncing: false, lastSyncedMs: 1_700_000_000_000, interface: "usb0" },
     library: LIBRARY,
     calls: [],
+    opened: [],
+    refuseOpen: null,
   };
   app.status = null;
   app.settings = null;
   app.privacy = null;
   app.library = [];
   app.error = null;
-  mockIPC((cmd) => {
+  app.job = null;
+  app.openRefused = null;
+  mockIPC((cmd, args) => {
     backend.calls.push(cmd);
     switch (cmd) {
       case "get_status": return backend.status;
@@ -41,6 +53,11 @@ beforeEach(() => {
         return { level: "unverified", findings: [{ code: "tablet-not-inspected", severity: "info", message: "Keep Wi-Fi off." }] };
       case "complete_first_run": backend.firstRunDone = true; return null;
       case "refresh": return null;
+      case "get_job": return null;
+      case "open_document":
+        if (backend.refuseOpen) throw backend.refuseOpen;
+        backend.opened.push((args as { id: string }).id);
+        return null;
       default: return null; // event plugin calls
     }
   }, { shouldMockEvents: true });
@@ -115,4 +132,39 @@ it("asks the backend to refresh", async () => {
   render(App);
   await fireEvent.click(await screen.findByTestId("refresh"));
   expect(backend.calls).toContain("refresh");
+});
+
+const job = (phase: object) => ({ documentId: "d1", title: "Scratch", phase, startedMs: Date.now(), fromCache: false });
+
+it("opens a document and shows the export's progress", async () => {
+  render(App);
+  await waitFor(() => expect(titles()).toEqual(["Projects", "Scratch"]));
+  await fireEvent.click(screen.getByText("Scratch"));
+  expect(backend.opened).toEqual(["d1"]);
+
+  await emit("job-changed", job({ phase: "rendering" }));
+  const bar = await screen.findByTestId("job-bar");
+  await waitFor(() => expect(bar).toHaveTextContent("The tablet is preparing “Scratch” as a PDF"));
+  // Nothing else can use the tablet meanwhile.
+  expect(screen.getByTestId("refresh")).toBeDisabled();
+  await fireEvent.click(screen.getByText("Scratch"));
+  expect(backend.opened).toEqual(["d1"]);
+
+  await emit("job-changed", job({ phase: "receiving", bytes: 3 * 1024 * 1024 }));
+  await waitFor(() => expect(screen.getByTestId("job-bar")).toHaveTextContent("3.0 MB"));
+  await fireEvent.click(screen.getByTestId("job-cancel"));
+  expect(backend.calls).toContain("cancel_job");
+
+  await emit("job-changed", job({ phase: "failed", message: "The tablet stopped answering." }));
+  await waitFor(() => expect(screen.getByTestId("job-bar")).toHaveTextContent("Could not open “Scratch”. The tablet stopped answering."));
+  await fireEvent.click(screen.getByTestId("job-dismiss"));
+  expect(backend.calls).toContain("dismiss_job");
+});
+
+it("explains why a document could not be opened", async () => {
+  backend.refuseOpen = "Connect the tablet to open this document.";
+  render(App);
+  await waitFor(() => screen.getAllByTestId("row"));
+  await fireEvent.click(screen.getByText("Scratch"));
+  expect(await screen.findByTestId("job-bar")).toHaveTextContent("Connect the tablet to open this document.");
 });

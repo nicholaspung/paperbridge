@@ -11,6 +11,8 @@ export const MOCK_URL = "http://127.0.0.1:18555";
 
 // The app is started by the WebDriver and inherits this environment.
 process.env.PB_DEVICE_BASE_URL = MOCK_URL;
+// Export for real, but do not launch a PDF viewer on the CI machine.
+process.env.PB_OPEN_DRY_RUN = "1";
 process.env.PB_DATA_DIR = mkdtempSync(path.join(os.tmpdir(), "pb-e2e-"));
 
 let mock;

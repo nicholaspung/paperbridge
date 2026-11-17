@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import ConnectionBadge from "./components/ConnectionBadge.svelte";
+  import JobBar from "./components/JobBar.svelte";
   import PrivacyBadge from "./components/PrivacyBadge.svelte";
   import { app } from "./state/app.svelte";
   import DeviceLibrary from "./views/DeviceLibrary.svelte";
@@ -28,12 +29,18 @@
   <div class="body">
     {#if app.status && app.settings}
       {#if app.settings.firstRunDone}
-        <DeviceLibrary library={app.library} status={app.status} os={app.settings.os} onRefresh={() => app.refresh()} />
+        <DeviceLibrary
+          library={app.library} status={app.status} os={app.settings.os}
+          onRefresh={() => app.refresh()} onOpen={(rec) => app.open(rec)}
+          busy={app.jobActive} openingId={app.jobActive ? (app.job?.documentId ?? null) : null}
+        />
       {:else}
         <FirstRun status={app.status} os={app.settings.os} onDone={() => app.finishFirstRun()} />
       {/if}
     {/if}
   </div>
+
+  <JobBar job={app.job} refused={app.openRefused} onCancel={() => app.cancelJob()} onDismiss={() => app.dismissJob()} />
 </div>
 
 <style>

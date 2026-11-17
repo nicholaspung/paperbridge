@@ -1,8 +1,15 @@
 # PaperBridge — Implementation Plan
 
-**Version:** 1.4.1 · **Date:** 2026-11-12 · **Target:** Linux + macOS desktop, reMarkable 2 · **Primary dev environment:** Linux (Arch) · **Status:** specification for a coding agent
+**Version:** 1.5 · **Date:** 2026-11-12 · **Target:** Linux + macOS desktop, reMarkable 2 · **Primary dev environment:** Linux (Arch) · **Status:** specification for a coding agent
 
 ## 0. Changes
+
+**v1.5 (Phase 2, first step: Open):**
+- **Open** exports a document's annotated PDF into the app's cache folder (`<cache>/open/<document id>/<title>.pdf`, plus `source.json` with the tablet's modified time) and opens it in the system viewer through `tauri-plugin-opener`. An unchanged document reopens from the cache without the tablet.
+- **One job at a time.** The sync loop and exports share one device lock; the loop skips a refresh while an export runs and catches up after it. Refresh and other documents are unavailable meanwhile; folders can still be browsed.
+- The job bar shows *waiting → the tablet is preparing (elapsed time) → receiving (bytes) → opened / failed / cancelled*. Cancel drops the request; the temp file is deleted.
+- The export pipeline from §7.3 is in `pb-core`: hidden temp file in the destination folder, size and `%PDF-` check, `fsync`, no-replace rename (`renameat2` / `renamex_np`, check-then-rename fallback), and file names from titles by the §7.3 rules. A PDF export that gets HTTP 404 retries `/placeholder`.
+- `pb-mock-tablet` serves a real one-page PDF and has a `render` fault (silent before the first byte) for the "preparing" state.
 
 **v1.4.1:**
 - **One tablet, one user.** No device profiles, tablet naming, or matching a connected tablet to a backup history. Whatever answers on the USB link is "the tablet" (§6).

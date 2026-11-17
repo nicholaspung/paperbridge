@@ -1,15 +1,46 @@
 //! High-level read operations on the tablet.
 
 use crate::error::{Error, Result};
+use crate::fsutil::{rename_noclobber, sync_dir, TempFile};
 use crate::ids::DocId;
 use crate::listing::{normalize, DocKind, DocumentRecord};
 use crate::transport::{DeviceTransport, Method, Session, Target, Timeouts};
 use crate::ConnectionState;
 use std::collections::{BTreeSet, VecDeque};
+use std::path::{Path, PathBuf};
 
 const LISTING_CAP: u64 = 10 << 20;
 /// Stops a runaway or cyclic folder tree.
 const MAX_FOLDERS: usize = 5000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportFormat {
+    /// The tablet-rendered PDF with annotations.
+    Pdf,
+    /// The native archive.
+    Rmdoc,
+}
+
+impl ExportFormat {
+    pub fn ext(self) -> &'static str {
+        match self {
+            ExportFormat::Pdf => "pdf",
+            ExportFormat::Rmdoc => "rmdoc",
+        }
+    }
+    fn signature_ok(self, head: &[u8]) -> bool {
+        match self {
+            ExportFormat::Pdf => head.starts_with(b"%PDF-"),
+            ExportFormat::Rmdoc => head.starts_with(b"PK\x03\x04"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Exported {
+    pub path: PathBuf,
+    pub bytes: u64,
+}
 
 pub struct Device {
     transport: DeviceTransport,
@@ -75,6 +106,48 @@ impl Device {
         let mut ids = BTreeSet::new();
         all.retain(|r| ids.insert(r.id.clone()));
         Ok(all)
+    }
+}
+
+impl Device {
+    /// Downloads one export into `dest`, which must not exist. The data goes
+    /// to a hidden temp file in the same folder first; it is checked (size,
+    /// signature), synced, and only then renamed into place without
+    /// replacing anything. Dropping the future removes the temp file.
+    ///
+    /// `progress` receives 0 when the tablet starts answering (it renders the
+    /// whole PDF before that), then the running byte count.
+    pub async fn export(
+        &self,
+        id: &DocId,
+        format: ExportFormat,
+        dest: &Path,
+        cap: u64,
+        progress: &mut (dyn FnMut(u64) + Send),
+    ) -> Result<Exported> {
+        let dir = dest.parent().ok_or_else(|| Error::InvalidPath(dest.display().to_string()))?;
+        let tmp = TempFile::new_in(dir, format.ext());
+        let mut s = self.transport.session().await;
+        let mut stats = s
+            .download_with(&format!("/download/{id}/{}", format.ext()), tmp.path(), cap, progress)
+            .await?;
+        // Older firmware names the PDF export differently.
+        if stats.status == 404 && format == ExportFormat::Pdf {
+            stats = s
+                .download_with(&format!("/download/{id}/placeholder"), tmp.path(), cap, progress)
+                .await?;
+        }
+        drop(s);
+        if stats.status != 200 {
+            return Err(Error::UnsupportedResponse(format!("export returned HTTP {}", stats.status)));
+        }
+        if stats.bytes == 0 || !format.signature_ok(&stats.head) {
+            return Err(Error::BadExport(if format == ExportFormat::Pdf { "PDF" } else { ".rmdoc archive" }));
+        }
+        rename_noclobber(tmp.path(), dest)?;
+        tmp.keep();
+        sync_dir(dir);
+        Ok(Exported { path: dest.to_path_buf(), bytes: stats.bytes })
     }
 }
 

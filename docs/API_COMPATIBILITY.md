@@ -34,4 +34,4 @@ Reports: [Linux](phase0/report-3.29.1.0-linux.md), [macOS](phase0/report-3.29.1.
 - **Sleep:** with the tablet asleep and on the cable, listings and a PDF export still worked (checked once, minutes after sleep began).
 - With the tablet unplugged, `10.11.99.1` routes to the default gateway.
 
-**Still open:** whether an upload really follows the last-listed folder (only the root was tested), whether `Origin`/`Referer` are required, EPUB upload, behavior after a long sleep, whether the web-interface setting survives a reboot, whether thumbnails of other documents also hang the server, title encoding, export time for large documents.
+**Still open:** whether an upload really follows the last-listed folder (only the root was tested), whether `Origin`/`Referer` are required, EPUB upload, behavior after a long sleep, whether the web-interface setting survives a reboot, whether thumbnails of other documents also hang the server, title encoding, export time for large documents, and what the tablet does when a PDF export is cancelled while it is still rendering (does it keep rendering, and does it answer listings meanwhile?).

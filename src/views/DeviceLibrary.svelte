@@ -7,11 +7,15 @@
   import { breadcrumbs, childrenOf, formatModified, KIND_LABEL, locationOf, search } from "../lib/library";
   import { connectionMessage } from "../lib/messages";
 
-  let { library, status, os, onRefresh }: {
+  let { library, status, os, onRefresh, onOpen, busy = false, openingId = null }: {
     library: DocumentRecord[];
     status: Status;
     os: string;
     onRefresh: () => void;
+    onOpen: (rec: DocumentRecord) => void;
+    /** A document is being prepared; others cannot be opened meanwhile. */
+    busy?: boolean;
+    openingId?: string | null;
   } = $props();
 
   let folder = $state<string | null>(null);
@@ -26,7 +30,9 @@
   const current = $derived(folder !== null && library.some((r) => r.id === folder) ? folder : null);
   const trail = $derived(breadcrumbs(library, current));
   const rows = $derived(searching ? search(library, query, new Set(kinds)) : childrenOf(library, current));
-  const refreshLabel = $derived(status.syncing ? "Refreshing…" : "Refresh from the tablet");
+  const refreshLabel = $derived(
+    status.syncing ? "Refreshing…" : busy ? "Available when the current document is ready" : "Refresh from the tablet",
+  );
   const synced = $derived(
     status.lastSyncedMs === null ? null : new Date(status.lastSyncedMs).toLocaleString(),
   );
@@ -39,7 +45,10 @@
     kinds = [];
   }
   function open(rec: DocumentRecord) {
-    if (rec.kind !== "folder") return;
+    if (rec.kind !== "folder") {
+      if (!busy) onOpen(rec);
+      return;
+    }
     folder = rec.id;
     clearSearch();
   }
@@ -84,7 +93,7 @@
     </div>
     <button
       class="icon-btn" data-testid="refresh" aria-label={refreshLabel} title={refreshLabel}
-      disabled={!connected || status.syncing} onclick={onRefresh}
+      disabled={!connected || status.syncing || busy} onclick={onRefresh}
     >
       <span class:spinning={status.syncing} class="spin-wrap"><Icon name="refresh" size={18} /></span>
     </button>
@@ -122,13 +131,18 @@
         <li>
           <button
             class="row" data-testid="row" data-kind={rec.kind}
-            disabled={rec.kind !== "folder"} onclick={() => open(rec)}
+            aria-disabled={rec.kind !== "folder" && busy}
+            title={rec.kind === "folder" ? undefined : busy ? "Another document is being prepared" : "Open as PDF"}
+            onclick={() => open(rec)}
           >
             <KindIcon kind={rec.kind} />
             <span class="title">{rec.title}</span>
             {#if searching}<span class="where muted">{locationOf(library, rec)}</span>{/if}
             <span class="date muted">{formatModified(rec.modified)}</span>
-            <span class="go muted">{#if rec.kind === "folder"}<Icon name="chevron" size={16} />{/if}</span>
+            <span class="go muted">
+              {#if rec.kind === "folder"}<Icon name="chevron" size={16} />
+              {:else if rec.id === openingId}<span class="spinning"><Icon name="spinner" size={16} /></span>{/if}
+            </span>
           </button>
         </li>
       {/each}
@@ -162,8 +176,9 @@
   .rows { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
   .rows li + li { border-top: 1px solid var(--border); }
   .row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 9px 14px; border: 0; background: none; text-align: left; }
-  .row:disabled { cursor: default; opacity: 1; color: inherit; }
-  .row:not(:disabled):hover { background: var(--hover); }
+  .row:hover { background: var(--hover); }
+  .row[aria-disabled="true"] { cursor: default; }
+  .row[aria-disabled="true"]:hover { background: none; }
   .title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .where { flex: 0 1 30%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .date { flex: 0 0 110px; text-align: right; }

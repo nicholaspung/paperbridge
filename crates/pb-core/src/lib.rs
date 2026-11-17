@@ -5,8 +5,10 @@ compile_error!("the `mock-device` feature must never be enabled in a release bui
 
 pub mod device;
 pub mod error;
+pub mod fsutil;
 pub mod ids;
 pub mod listing;
+pub mod naming;
 pub mod platform;
 pub mod privacy;
 pub mod storage;

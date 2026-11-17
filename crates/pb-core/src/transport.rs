@@ -187,6 +187,18 @@ impl Session<'_> {
     /// Streams an export to `dest`, which must not exist yet. A non-2xx
     /// response writes nothing and returns the status with a short body head.
     pub async fn download(&mut self, path: &str, dest: &Path, cap: u64) -> Result<DownloadStats> {
+        self.download_with(path, dest, cap, &mut |_| {}).await
+    }
+
+    /// Like `download`, calling `progress` with the byte count once the
+    /// tablet starts answering (0) and after every chunk.
+    pub async fn download_with(
+        &mut self,
+        path: &str,
+        dest: &Path,
+        cap: u64,
+        progress: &mut (dyn FnMut(u64) + Send),
+    ) -> Result<DownloadStats> {
         check_path(path)?;
         let t = &self.t.timeouts;
         let started = Instant::now();
@@ -197,6 +209,7 @@ impl Session<'_> {
         .await
         .map_err(|_| Error::Timeout(t.first_byte, "waiting for the tablet to start an export"))??;
         let first_byte = started.elapsed();
+        progress(0);
         let status = resp.status().as_u16();
         let headers = headers_of(&resp);
 
@@ -234,6 +247,7 @@ impl Session<'_> {
                     head.extend_from_slice(&chunk[..chunk.len().min(need)]);
                 }
                 file.write_all(&chunk).await?;
+                progress(bytes);
             }
             file.sync_all().await?;
             Ok(())

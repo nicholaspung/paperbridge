@@ -29,6 +29,9 @@ pub enum Fault {
     Hang,
     /// Listings return more than the client's 10 MB cap.
     Oversized,
+    /// Exports stay silent this long before answering, like the tablet
+    /// rendering a large notebook. Listings are unaffected.
+    Render(u64),
 }
 
 impl Fault {
@@ -42,6 +45,7 @@ impl Fault {
             "http500" => Fault::Http(500),
             "http404" => Fault::Http(404),
             "slow" => Fault::Slow(1500),
+            "render" => Fault::Render(4000),
             _ => return None,
         })
     }
@@ -131,6 +135,37 @@ enum Reply {
     Silence,
 }
 
+/// A small valid one-page PDF, padded so it arrives in several chunks.
+pub fn mock_pdf() -> Vec<u8> {
+    let text = "BT /F1 24 Tf 72 720 Td (PaperBridge mock export) Tj ET";
+    let objs = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{text}\nendstream", text.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ];
+    let mut out = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{o}\nendobj\n", i + 1).as_bytes());
+    }
+    // Padding comment lines, so progress reporting has something to show.
+    for _ in 0..4000 {
+        out.extend_from_slice(b"% padding padding padding padding padding padding padding\n");
+    }
+    let xref = out.len();
+    out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
+    for off in offsets {
+        out.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes(),
+    );
+    out
+}
+
 fn children(items: &[Value], parent: &str) -> Vec<u8> {
     let kids: Vec<&Value> = items
         .iter()
@@ -183,9 +218,11 @@ fn route(state: &Mutex<State>, method: &str, path: &str) -> (Reply, u64) {
             s.hung = true;
             Reply::Silence
         }
-        ("GET", ["download", _, "pdf" | "placeholder"]) => {
-            Reply::Full(200, "application/pdf", b"%PDF-1.4\n%mock\n%%EOF\n".to_vec())
-        }
+        ("GET", ["download", _, "pdf" | "placeholder"]) => match s.fault {
+            Fault::Malformed => Reply::Full(200, "text/html", b"<html>error</html>".to_vec()),
+            Fault::Render(ms) => return (Reply::Full(200, "application/pdf", mock_pdf()), ms),
+            _ => Reply::Full(200, "application/pdf", mock_pdf()),
+        },
         ("GET", ["download", _, "rmdoc"]) => {
             Reply::Full(200, "application/zip", b"PK\x03\x04mock".to_vec())
         }

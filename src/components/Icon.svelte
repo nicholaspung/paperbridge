@@ -21,6 +21,10 @@
     plug: ["M12 22v-5", "M9 8V2", "M15 8V2", "M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"],
     shield: ["M20 13c0 5-3.5 7.5-7.7 9a1 1 0 0 1-.6 0C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.2-2.7a1.2 1.2 0 0 1 1.6 0C14.5 3.8 17 5 19 5a1 1 0 0 1 1 1z"],
     alert: ["M12 8v4", "M12 16h.01"],
+    alertCircle: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M12 8v4", "M12 16h.01"],
+    check: ["M20 6 9 17l-5-5"],
+    spinner: ["M21 12a9 9 0 1 1-6.2-8.6"],
+    download: ["M12 3v12", "M7 10l5 5 5-5", "M5 21h14"],
   } as const;
   export type IconName = keyof typeof PATHS;
 </script>

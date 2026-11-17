@@ -28,7 +28,7 @@ fn mock_target() -> Option<(Target, String)> {
 
 /// The tablet, if a verified USB interface is present. On systems where the
 /// USB check is not implemented yet, a subnet match is accepted.
-fn find_target() -> Option<(Target, String)> {
+pub(crate) fn find_target() -> Option<(Target, String)> {
     if let Some(mock) = mock_target() {
         return Some(mock);
     }
@@ -71,7 +71,9 @@ pub async fn run(app: AppHandle, state: Arc<AppState>) {
             Some((target, name)) => {
                 let connected =
                     state.status.lock().unwrap().connection == ConnectionState::Connected;
-                if want_sync || !connected {
+                // An export holds the device; try again on the next tick.
+                let busy = state.device.try_lock();
+                if (want_sync || !connected) && busy.is_ok() {
                     update(&app, &state, |s| {
                         s.interface = Some(name);
                         s.syncing = true;
@@ -96,6 +98,7 @@ pub async fn run(app: AppHandle, state: Arc<AppState>) {
                         want_sync = false;
                     }
                 }
+                drop(busy);
             }
         }
         tokio::select! {
