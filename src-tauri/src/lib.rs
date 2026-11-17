@@ -139,7 +139,7 @@ pub fn run() {
             open::cancel_job,
             open::dismiss_job,
             open::get_job,
-            open::get_document_pdf,
+            open::get_document_file,
             open::open_external
         ])
         .run(tauri::generate_context!())

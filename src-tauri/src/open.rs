@@ -1,5 +1,5 @@
-//! "Open": get a document's annotated PDF into the app's cache, then show it
-//! in the app's viewer or hand it to the system viewer. One job at a time;
+//! "Open": get a document's annotated PDF (or, for books, the original EPUB)
+//! into the app's cache, then show it in the app or hand it to the system. One job at a time;
 //! it shares the device with the sync loop through `AppState::device`.
 //!
 //! The cache is keyed by the tablet's modified time. Before trusting a cached
@@ -9,6 +9,7 @@
 use crate::{sync, AppState, Shared};
 use pb_core::device::{classify, Device, ExportFormat};
 use pb_core::listing::{DocKind, DocumentRecord};
+use pb_core::fsutil::TempFile;
 use pb_core::naming::safe_file_name;
 use pb_core::transport::Timeouts;
 use pb_core::{ConnectionState, DocId, Error};
@@ -21,6 +22,30 @@ use ts_rs::TS;
 
 /// Exports larger than this are refused. Far above any real notebook.
 const EXPORT_CAP: u64 = 4 << 30;
+
+/// What to show: the tablet's annotated PDF, or a book's original EPUB.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum ViewFormat {
+    Pdf,
+    Epub,
+}
+
+impl ViewFormat {
+    fn ext(self) -> &'static str {
+        match self {
+            ViewFormat::Pdf => "pdf",
+            ViewFormat::Epub => "epub",
+        }
+    }
+    fn signature(self) -> &'static [u8] {
+        match self {
+            ViewFormat::Pdf => b"%PDF-",
+            ViewFormat::Epub => b"PK\x03\x04",
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "phase", rename_all = "camelCase")]
@@ -61,6 +86,7 @@ pub struct Job {
     pub started_ms: u64,
     /// The local copy was current, so the tablet did not render anything.
     pub from_cache: bool,
+    pub format: ViewFormat,
     /// Open in the system viewer instead of the app's own.
     pub external: bool,
     /// Something the user should know about the result.
@@ -127,24 +153,26 @@ fn describe(err: &Error, first_byte: Duration) -> String {
     }
 }
 
-fn read_entry(dir: &Path) -> Option<(CacheEntry, PathBuf)> {
+fn read_entry(dir: &Path, format: ViewFormat) -> Option<(CacheEntry, PathBuf)> {
     let entry: CacheEntry = serde_json::from_slice(&std::fs::read(dir.join("source.json")).ok()?).ok()?;
     let path = dir.join(&entry.file);
-    let mut head = [0u8; 5];
+    let sig = format.signature();
+    let mut head = vec![0u8; sig.len()];
     use std::io::Read;
     std::fs::File::open(&path).ok()?.read_exact(&mut head).ok()?;
-    (&head == b"%PDF-").then_some((entry, path))
+    (head == sig).then_some((entry, path))
 }
 
-/// The cached copy, if it was exported from exactly this version.
-fn cached_copy(dir: &Path, modified: &Option<String>) -> Option<PathBuf> {
-    let (entry, path) = read_entry(dir)?;
-    (modified.is_some() && entry.modified == *modified).then_some(path)
+/// The cached copy, if it is current. A book's original EPUB never changes
+/// on the tablet (annotations live elsewhere), so any copy of it is current.
+fn cached_copy(dir: &Path, format: ViewFormat, modified: &Option<String>) -> Option<PathBuf> {
+    let (entry, path) = read_entry(dir, format)?;
+    (format == ViewFormat::Epub || (modified.is_some() && entry.modified == *modified)).then_some(path)
 }
 
 /// Whatever copy is cached, however old.
-fn any_cached_copy(dir: &Path) -> Option<PathBuf> {
-    read_entry(dir).map(|(_, p)| p)
+fn any_cached_copy(dir: &Path, format: ViewFormat) -> Option<PathBuf> {
+    read_entry(dir, format).map(|(_, p)| p)
 }
 
 /// Replaces whatever is cached for this document with the new export.
@@ -170,11 +198,20 @@ fn open_with_system(app: &AppHandle, path: &Path) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     app.opener()
         .open_path(path.to_string_lossy(), None::<&str>)
-        .map_err(|e| format!("The PDF was saved but could not be opened: {e}"))
+        .map_err(|e| format!("The file was saved but could not be opened: {e}"))
 }
 
-fn cache_dir_for(state: &AppState, id: &DocId) -> PathBuf {
-    state.cache_dir.join("open").join(id.as_str())
+fn cache_dir_for(state: &AppState, id: &DocId, format: ViewFormat) -> PathBuf {
+    let doc = state.cache_dir.join("open").join(id.as_str());
+    // v1.5 kept the PDF directly in the document's folder; clear that out.
+    if let Ok(entries) = std::fs::read_dir(&doc) {
+        for e in entries.flatten() {
+            if e.file_type().is_ok_and(|t| t.is_file()) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    doc.join(format.ext())
 }
 
 /// Ends the job with a file in hand: the app's viewer picks it up from
@@ -190,7 +227,13 @@ fn finish(app: &AppHandle, state: &AppState, path: &Path, external: bool) -> Job
     }
 }
 
-async fn fetch(app: &AppHandle, state: &Arc<AppState>, rec: &DocumentRecord, dir: &Path) -> Result<PathBuf, String> {
+async fn fetch(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    rec: &DocumentRecord,
+    dir: &Path,
+    format: ViewFormat,
+) -> Result<PathBuf, String> {
     let timeouts = Timeouts::default();
     let first_byte = timeouts.first_byte;
     let _device = state.device.lock().await;
@@ -203,7 +246,7 @@ async fn fetch(app: &AppHandle, state: &Arc<AppState>, rec: &DocumentRecord, dir
         Ok(items) => items.into_iter().find(|r| r.id == rec.id),
         Err(e) => {
             state.refresh.notify_one();
-            if let Some(path) = any_cached_copy(dir) {
+            if let Some(path) = any_cached_copy(dir, format) {
                 update_job(app, state, |j| {
                     j.from_cache = true;
                     j.note = Some(
@@ -228,14 +271,14 @@ async fn fetch(app: &AppHandle, state: &Arc<AppState>, rec: &DocumentRecord, dir
             None
         }
     };
-    if let Some(path) = cached_copy(dir, &modified) {
+    if let Some(path) = cached_copy(dir, format, &modified) {
         update_job(app, state, |j| j.from_cache = true);
         return Ok(path);
     }
 
     set_phase(app, state, JobPhase::Rendering);
     std::fs::create_dir_all(dir).map_err(|e| format!("Could not create the cache folder: {e}"))?;
-    let dest = dir.join(safe_file_name(&rec.title, "pdf"));
+    let dest = dir.join(safe_file_name(&rec.title, format.ext()));
     // An older copy under the same name would block the no-replace rename.
     let _ = std::fs::remove_file(&dest);
     let mut last = Instant::now();
@@ -247,20 +290,52 @@ async fn fetch(app: &AppHandle, state: &Arc<AppState>, rec: &DocumentRecord, dir
             set_phase(&app2, &state2, JobPhase::Receiving { bytes });
         }
     };
-    let out = device
-        .export(&rec.id, ExportFormat::Pdf, &dest, EXPORT_CAP, &mut progress)
-        .await
-        .map_err(|e| {
-            // Let the sync loop re-check the connection and update the badge.
-            state.refresh.notify_one();
-            describe(&e, first_byte)
-        })?;
-    commit_cache(dir, &modified, &out.path).map_err(|e| format!("Could not update the cache: {e}"))?;
-    Ok(out.path)
+    let failed = |e: Error| {
+        // Let the sync loop re-check the connection and update the badge.
+        state.refresh.notify_one();
+        describe(&e, first_byte)
+    };
+    match format {
+        ViewFormat::Pdf => {
+            device
+                .export(&rec.id, ExportFormat::Pdf, &dest, EXPORT_CAP, &mut progress)
+                .await
+                .map_err(failed)?;
+        }
+        ViewFormat::Epub => {
+            // The native archive carries the original book file.
+            let archive = TempFile::new_in(dir, "rmdoc");
+            device
+                .export(&rec.id, ExportFormat::Rmdoc, archive.path(), EXPORT_CAP, &mut progress)
+                .await
+                .map_err(failed)?;
+            let (src, id, out) = (archive.path().to_path_buf(), rec.id.clone(), dest.clone());
+            tauri::async_runtime::spawn_blocking(move || {
+                pb_core::rmdoc::extract_original(&src, &id, "epub", &out, &Default::default())
+            })
+            .await
+            .map_err(|e| format!("Could not unpack the book: {e}"))?
+            .map_err(|e| match e {
+                Error::BadArchive(_) | Error::BadExport(_) => {
+                    "The tablet's copy of this book has no usable EPUB file. Try “With annotations” instead.".to_string()
+                }
+                other => describe(&other, first_byte),
+            })?;
+        }
+    }
+    commit_cache(dir, &modified, &dest).map_err(|e| format!("Could not update the cache: {e}"))?;
+    Ok(dest)
 }
 
-async fn run_job(app: AppHandle, state: Arc<AppState>, rec: DocumentRecord, dir: PathBuf, external: bool) {
-    let phase = match fetch(&app, &state, &rec, &dir).await {
+async fn run_job(
+    app: AppHandle,
+    state: Arc<AppState>,
+    rec: DocumentRecord,
+    dir: PathBuf,
+    format: ViewFormat,
+    external: bool,
+) {
+    let phase = match fetch(&app, &state, &rec, &dir, format).await {
         Ok(path) => finish(&app, &state, &path, external),
         Err(message) => JobPhase::Failed { message },
     };
@@ -271,7 +346,13 @@ async fn run_job(app: AppHandle, state: Arc<AppState>, rec: DocumentRecord, dir:
 /// Starts getting a document's PDF. Progress arrives as `job-changed`
 /// events; with `external` false the UI shows it when the job is `Done`.
 #[tauri::command]
-pub fn open_document(app: AppHandle, state: Shared, id: String, external: bool) -> Result<(), String> {
+pub fn open_document(
+    app: AppHandle,
+    state: Shared,
+    id: String,
+    format: ViewFormat,
+    external: bool,
+) -> Result<(), String> {
     let id = DocId::parse(&id).map_err(|e| e.to_string())?;
     let library = state.store.load_library().map_err(|e| e.to_string())?;
     let rec = library
@@ -281,28 +362,44 @@ pub fn open_document(app: AppHandle, state: Shared, id: String, external: bool) 
     if rec.kind == DocKind::Folder {
         return Err("Folders cannot be opened as a PDF.".into());
     }
+    if format == ViewFormat::Epub && rec.kind != DocKind::Epub {
+        return Err("Only books imported as EPUB have an EPUB version.".into());
+    }
     let mut jobs = state.jobs.lock().unwrap();
     if jobs.current.as_ref().is_some_and(|j| j.phase.is_active()) {
         return Err("Another document is still being prepared.".into());
     }
-    let dir = cache_dir_for(&state, &id);
+    let dir = cache_dir_for(&state, &id, format);
     let mut job = Job {
         document_id: id.as_str().to_string(),
         title: rec.title.clone(),
         phase: JobPhase::Waiting,
         started_ms: now_ms(),
         from_cache: false,
+        format,
         external,
         note: None,
     };
 
+    // A book's original never changes, so its saved copy needs no tablet.
+    if format == ViewFormat::Epub {
+        if let Some(path) = any_cached_copy(&dir, format) {
+            job.from_cache = true;
+            jobs.current = Some(job);
+            drop(jobs);
+            let phase = finish(&app, &state, &path, external);
+            set_phase(&app, &state, phase);
+            return Ok(());
+        }
+    }
+
     if state.status.lock().unwrap().connection != ConnectionState::Connected {
         // Offline: the saved copy is the best there is.
-        let Some(path) = any_cached_copy(&dir) else {
+        let Some(path) = any_cached_copy(&dir, format) else {
             return Err("Connect the tablet to open this document. It has not been opened on this computer before.".into());
         };
         job.from_cache = true;
-        if cached_copy(&dir, &rec.modified).is_none() {
+        if cached_copy(&dir, format, &rec.modified).is_none() {
             job.note = Some("The tablet is not connected, and this saved copy is older than the library shows.".into());
         }
         jobs.current = Some(job);
@@ -313,26 +410,28 @@ pub fn open_document(app: AppHandle, state: Shared, id: String, external: bool) 
     }
     jobs.current = Some(job.clone());
     let _ = app.emit("job-changed", Some(job));
-    let handle = tauri::async_runtime::spawn(run_job(app.clone(), state.inner().clone(), rec, dir, external));
+    let handle = tauri::async_runtime::spawn(run_job(app.clone(), state.inner().clone(), rec, dir, format, external));
     jobs.abort = Some(handle);
     Ok(())
 }
 
-/// The cached PDF of a document, for the app's viewer. Takes an ID, never a
-/// path, and only reads the cache.
+/// The cached PDF or EPUB of a document, for the app's viewers. Takes an
+/// ID, never a path, and only reads the cache.
 #[tauri::command]
-pub fn get_document_pdf(state: Shared, id: String) -> Result<tauri::ipc::Response, String> {
+pub fn get_document_file(state: Shared, id: String, format: ViewFormat) -> Result<tauri::ipc::Response, String> {
     let id = DocId::parse(&id).map_err(|e| e.to_string())?;
-    let path = any_cached_copy(&cache_dir_for(&state, &id)).ok_or("This document has not been opened yet.")?;
-    let bytes = std::fs::read(path).map_err(|e| format!("Could not read the saved PDF: {e}"))?;
+    let path = any_cached_copy(&cache_dir_for(&state, &id, format), format)
+        .ok_or("This document has not been opened yet.")?;
+    let bytes = std::fs::read(path).map_err(|e| format!("Could not read the saved file: {e}"))?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-/// Opens the cached PDF of a document in the system viewer.
+/// Opens the cached file of a document in the system's default app.
 #[tauri::command]
-pub fn open_external(app: AppHandle, state: Shared, id: String) -> Result<(), String> {
+pub fn open_external(app: AppHandle, state: Shared, id: String, format: ViewFormat) -> Result<(), String> {
     let id = DocId::parse(&id).map_err(|e| e.to_string())?;
-    let path = any_cached_copy(&cache_dir_for(&state, &id)).ok_or("This document has not been opened yet.")?;
+    let path = any_cached_copy(&cache_dir_for(&state, &id, format), format)
+        .ok_or("This document has not been opened yet.")?;
     open_with_system(&app, &path)
 }
 

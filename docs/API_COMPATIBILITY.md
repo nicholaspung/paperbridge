@@ -12,7 +12,7 @@ Reports: [Linux](phase0/report-3.29.1.0-linux.md), [macOS](phase0/report-3.29.1.
 | `GET /documents/{id}` | 200, children of the folder. |
 | `GET /download/{id}/pdf` | 200, valid PDF. About 1.5 s to first byte for a one-page notebook. |
 | `GET /download/{id}/placeholder` | 200, byte-identical size to `/pdf`. Both paths work. |
-| `GET /download/{id}/rmdoc` | 200, valid ZIP in about 170 ms. Contains `.metadata`, `.content`, `.pagedata`, and per-page `.rm` files. No thumbnails inside. |
+| `GET /download/{id}/rmdoc` | 200, valid ZIP in about 170 ms. Contains `.metadata`, `.content`, `.pagedata`, and per-page `.rm` files. No thumbnails inside. **For an EPUB** (3 checked, 2026-11-16): `<id>.epub` (the original, a valid EPUB), `<id>.pdf` (the tablet's own conversion, larger than the EPUB), `.content` (`fileType: epub`, page counts, font and margin settings), `.metadata`, `.pagedata`; no `.rm` pages on unannotated books. 3–6 MB in 1.3–2.9 s. |
 | `GET /thumbnail/{id}` | **No reply within 10 s, and the web server then stopped answering every request** (TCP connections accepted, no response) for over ten minutes. Switching the USB web interface off and on restored it. Reproduced twice (Linux and macOS hosts), both times on the same notebook. Do not call this endpoint. |
 | `POST /upload` | **201** with a small JSON body (`{"status": …}`) after 3.7 s for an 11.6 MB PDF. Sent as multipart field `file` with `Origin` and `Referer` set to the tablet. The probe had listed 11 subfolders, then the root, then uploaded: exactly one new ID appeared in the root. Success is 201, not 200. |
 

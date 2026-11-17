@@ -1,6 +1,7 @@
 import * as ipc from "../lib/ipc";
 import type { DocumentRecord } from "../lib/bindings/DocumentRecord";
 import type { Job } from "../lib/bindings/Job";
+import type { ViewFormat } from "../lib/bindings/ViewFormat";
 import type { PrivacyStatus } from "../lib/bindings/PrivacyStatus";
 import type { Settings } from "../lib/bindings/Settings";
 import type { Status } from "../lib/bindings/Status";
@@ -15,7 +16,7 @@ class AppStore {
   /** Why the last Open request was refused before it started. */
   openRefused = $state<string | null>(null);
   /** The document shown in the app's viewer. */
-  viewing = $state<{ id: string; title: string } | null>(null);
+  viewing = $state<{ id: string; title: string; format: ViewFormat } | null>(null);
 
   async init() {
     try {
@@ -63,7 +64,9 @@ class AppStore {
 
   private onJob(j: Job | null) {
     this.job = j;
-    if (j && j.phase.phase === "done" && !j.external) this.viewing = { id: j.documentId, title: j.title };
+    if (j && j.phase.phase === "done" && !j.external) {
+      this.viewing = { id: j.documentId, title: j.title, format: j.format };
+    }
   }
 
   get jobActive(): boolean {
@@ -71,10 +74,11 @@ class AppStore {
     return p === "waiting" || p === "checking" || p === "rendering" || p === "receiving" || p === "opening";
   }
 
-  async open(rec: DocumentRecord, external = false) {
+  /** Books open as their original EPUB; everything else as the tablet's PDF. */
+  async open(rec: DocumentRecord, format: ViewFormat = rec.kind === "epub" ? "epub" : "pdf", external = false) {
     this.openRefused = null;
     try {
-      await ipc.openDocument(rec.id, external);
+      await ipc.openDocument(rec.id, format, external);
     } catch (e) {
       this.openRefused = String(e);
     }
@@ -84,8 +88,15 @@ class AppStore {
     this.viewing = null;
   }
 
-  openExternal(id: string) {
-    ipc.openExternal(id).catch((e) => (this.openRefused = String(e)));
+  /** Shows the document being viewed in the other format. */
+  switchFormat(format: ViewFormat) {
+    const rec = this.library.find((r) => r.id === this.viewing?.id);
+    if (rec && format !== this.viewing?.format && !this.jobActive) void this.open(rec, format);
+  }
+
+  openExternal() {
+    const v = this.viewing;
+    if (v) ipc.openExternal(v.id, v.format).catch((e) => (this.openRefused = String(e)));
   }
 
   cancelJob() {

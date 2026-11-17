@@ -79,6 +79,35 @@ describe("PaperBridge against the mock tablet", () => {
     await closeViewer();
   });
 
+  it("reads a book as its EPUB without running its scripts, and switches to the annotated PDF", async () => {
+    await $('[data-testid="filter-pdf"]').click(); // back to the full list
+    await $('[data-testid="filter-epub"]').click();
+    await browser.waitUntil(async () => (await rows().length) === 8, { timeoutMsg: "expected 8 EPUBs" });
+    await rows()[0].click();
+    const reader = $('[data-testid="epub-reader"]');
+    await browser.waitUntil(async () => (await reader.getAttribute("data-ready")) === "true", {
+      timeout: 20_000,
+      timeoutMsg: "the book did not open",
+    });
+    await browser.waitUntil(async () => Number(await reader.getAttribute("data-sections")) > 0);
+    // The mock book's first chapter tries to run a script and an onload handler.
+    expect(await $("body").getAttribute("data-epub-script")).toBeNull();
+    expect(await $("body").getAttribute("data-epub-onload")).toBeNull();
+    await $('[data-testid="epub-next"]').click();
+
+    await $('[data-testid="show-pdf"]').click();
+    await browser.waitUntil(async () => (await $$('[data-testid="pdf-page"][data-rendered="true"]').length) > 0, {
+      timeout: 20_000,
+      timeoutMsg: "the annotated PDF was not shown",
+    });
+    await $('[data-testid="viewer-close"]').click();
+    await expect($('[data-testid="library"]')).toBeDisplayed();
+    if (await $('[data-testid="job-dismiss"]').isExisting()) await $('[data-testid="job-dismiss"]').click();
+    await $('[data-testid="filter-epub"]').click();
+    await $('[data-testid="filter-pdf"]').click();
+    await browser.waitUntil(async () => (await rows().length) === 7);
+  });
+
   it("shows a slow export as rendering and can cancel it", async () => {
     await fault("render");
     await rows()[1].click();

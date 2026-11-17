@@ -166,6 +166,90 @@ pub fn mock_pdf() -> Vec<u8> {
     out
 }
 
+fn zip_of(entries: &[(&str, &[u8], bool)]) -> Vec<u8> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, data, stored) in entries {
+        let opts = SimpleFileOptions::default().compression_method(if *stored {
+            zip::CompressionMethod::Stored
+        } else {
+            zip::CompressionMethod::Deflated
+        });
+        w.start_file(*name, opts).unwrap();
+        w.write_all(data).unwrap();
+    }
+    w.finish().unwrap().into_inner()
+}
+
+/// A small valid EPUB 3 with two chapters. Chapter 1 carries an inline
+/// script and an event handler that must never run in the app, and a link
+/// to the internet that must not be followed.
+pub fn mock_epub() -> Vec<u8> {
+    let container = br#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"#;
+    let opf = br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:uuid:00000000-0000-4000-8000-00000000e9b0</dc:identifier>
+    <dc:title>Mock book</dc:title><dc:language>en</dc:language>
+    <meta property="dcterms:modified">2000-01-01T00:00:00Z</meta>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="css" href="style.css" media-type="text/css"/>
+    <item id="c1" href="c1.xhtml" media-type="application/xhtml+xml" properties="scripted"/>
+    <item id="c2" href="c2.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="c1"/><itemref idref="c2"/></spine>
+</package>"#;
+    let nav = br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head>
+<body><nav epub:type="toc"><ol><li><a href="c1.xhtml">Chapter one</a></li><li><a href="c2.xhtml">Chapter two</a></li></ol></nav></body></html>"#;
+    let c1 = br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter one</title><link rel="stylesheet" href="style.css"/>
+<script>try { parent.document.body.setAttribute("data-epub-script", "ran") } catch (e) {}</script></head>
+<body onload="parent.document.body.setAttribute('data-epub-onload', 'ran')"><h1 class="chapter">Chapter one</h1>
+<p class="marker">PaperBridge mock book, first chapter.</p>
+<p><a id="external" href="https://example.com/">A link to the internet</a></p></body></html>"#;
+    let c2 = br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter two</title><link rel="stylesheet" href="style.css"/></head>
+<body><h1 class="chapter">Chapter two</h1><p>The second chapter.</p></body></html>"#;
+    zip_of(&[
+        ("mimetype", b"application/epub+zip", true),
+        ("META-INF/container.xml", container, false),
+        ("OEBPS/content.opf", opf, false),
+        ("OEBPS/nav.xhtml", nav, false),
+        ("OEBPS/style.css", b"h1.chapter { color: #2f5d8a; }", false),
+        ("OEBPS/c1.xhtml", c1, false),
+        ("OEBPS/c2.xhtml", c2, false),
+    ])
+}
+
+/// A `.rmdoc` shaped like the tablet's: metadata files, plus the original
+/// document and the tablet's PDF for imported books.
+pub fn mock_rmdoc(id: &str, file_type: &str) -> Vec<u8> {
+    let content = format!(r#"{{"fileType":"{file_type}","formatVersion":1,"pageCount":1}}"#);
+    let metadata = br#"{"type":"DocumentType","visibleName":"Mock"}"#;
+    let pdf = mock_pdf();
+    let epub = mock_epub();
+    let (n_content, n_meta, n_pdf, n_epub) =
+        (format!("{id}.content"), format!("{id}.metadata"), format!("{id}.pdf"), format!("{id}.epub"));
+    let mut entries: Vec<(&str, &[u8], bool)> =
+        vec![(&n_meta, metadata.as_slice(), false), (&n_content, content.as_bytes(), false)];
+    match file_type {
+        "pdf" => entries.push((&n_pdf, &pdf, false)),
+        "epub" => {
+            entries.push((&n_pdf, &pdf, false));
+            entries.push((&n_epub, &epub, false));
+        }
+        _ => {}
+    }
+    zip_of(&entries)
+}
+
 fn children(items: &[Value], parent: &str) -> Vec<u8> {
     let kids: Vec<&Value> = items
         .iter()
@@ -234,9 +318,21 @@ fn route(state: &Mutex<State>, method: &str, path: &str) -> (Reply, u64) {
             Fault::Render(ms) => return (Reply::Full(200, "application/pdf", mock_pdf()), ms),
             _ => Reply::Full(200, "application/pdf", mock_pdf()),
         },
-        ("GET", ["download", _, "rmdoc"]) => {
-            Reply::Full(200, "application/zip", b"PK\x03\x04mock".to_vec())
-        }
+        ("GET", ["download", id, "rmdoc"]) => match s.fault {
+            Fault::Malformed => Reply::Full(200, "application/zip", b"PK\x03\x04mock".to_vec()),
+            fault => {
+                let file_type = s
+                    .items
+                    .iter()
+                    .find(|i| i.get("ID").and_then(Value::as_str) == Some(id))
+                    .and_then(|i| i.get("fileType").and_then(Value::as_str))
+                    .unwrap_or("notebook")
+                    .to_string();
+                let body = mock_rmdoc(id, &file_type);
+                let delay = if let Fault::Render(ms) = fault { ms } else { 0 };
+                return (Reply::Full(200, "application/zip", body), delay);
+            }
+        },
         ("POST", ["upload"]) => {
             s.uploads += 1;
             let n = s.uploads;

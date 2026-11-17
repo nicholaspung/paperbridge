@@ -1,8 +1,14 @@
 # PaperBridge — Implementation Plan
 
-**Version:** 1.6 · **Date:** 2026-11-12 · **Target:** Linux + macOS desktop, reMarkable 2 · **Primary dev environment:** Linux (Arch) · **Status:** specification for a coding agent
+**Version:** 1.7 · **Date:** 2026-11-12 · **Target:** Linux + macOS desktop, reMarkable 2 · **Primary dev environment:** Linux (Arch) · **Status:** specification for a coding agent
 
 ## 0. Changes
+
+**v1.7 (books as EPUB):**
+- **EPUBs open as the original book** in a built-in reader (foliate-js 1.0.1, MIT, lazy-loaded): paginated, contents menu, text size, reading position remembered per book (local storage, a convenience only). A two-button switch shows the tablet's annotated PDF instead; notebooks and PDFs have no switch.
+- The original comes from the `.rmdoc` export, which carries `<id>.epub` (§4.1 observations). `pb-core::rmdoc::extract_original` reads only that entry, with caps on entry count, size and compression ratio, and the same temp-file/no-replace commit as exports. The original never changes on the tablet, so a saved copy is reused without asking the tablet.
+- **Book content is untrusted.** Every (X)HTML/SVG resource is sanitized before display (scripts, event handlers, frames, objects, forms, `javascript:` URLs, meta refresh removed), links out of the book are not followed, and the CSP still forbids scripts other than the app's own. The CSP gains `'unsafe-inline'` and `blob:` for styles, and `blob:` for frames, fonts and media, which the reader needs. Verified: with the sanitizer disabled, the CSP alone kept the mock book's script from running (Chromium); the e2e test checks the combined result in WebKitGTK.
+- `zip` is pinned to 9.1.3 (the newer releases were days old).
 
 **v1.6 (in-app viewer, fresh copies):**
 - **Documents open in PaperBridge's own viewer** (PDF.js 6, legacy build, bundled and lazy-loaded; no network). Pages render lazily near the viewport; fit-to-width (capped at 200%), zoom, page counter, Esc to close. "Open in the default PDF app" remains as a button. The webview gets the PDF through `get_document_pdf(id)`, which takes an ID, never a path. CSP adds `blob:` for images and workers and `data:` for fonts.

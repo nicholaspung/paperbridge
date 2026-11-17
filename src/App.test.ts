@@ -4,6 +4,17 @@ import { emit } from "@tauri-apps/api/event";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+// The real EPUB engine needs a browser too.
+vi.mock("./lib/epub", () => ({
+  openBook: async (_host: HTMLElement, _bytes: Uint8Array, opts: { onRelocate: (r: object) => void }) => {
+    opts.onRelocate({ fraction: 0.25, chapter: "Chapter one" });
+    return {
+      toc: [{ label: "Chapter one", href: "c1.xhtml", depth: 0 }],
+      next: async () => {}, prev: async () => {}, goTo: async () => {}, setStyles() {}, destroy() {},
+    };
+  },
+}));
+
 // The real PDF.js needs a browser; the viewer's logic is tested against a fake.
 vi.mock("./lib/pdf", () => ({
   loadPdf: async () => {
@@ -65,11 +76,11 @@ beforeEach(() => {
       case "complete_first_run": backend.firstRunDone = true; return null;
       case "refresh": return null;
       case "get_job": return null;
-      case "get_document_pdf": return new Uint8Array([37, 80, 68, 70, 45]).buffer;
+      case "get_document_file": return new Uint8Array([37, 80, 68, 70, 45]).buffer;
       case "open_external": return null;
       case "open_document":
         if (backend.refuseOpen) throw backend.refuseOpen;
-        backend.opened.push((args as { id: string }).id);
+        backend.opened.push((args as { id: string; format: string }).id + ":" + (args as { format: string }).format);
         return null;
       default: return null; // event plugin calls
     }
@@ -148,14 +159,14 @@ it("asks the backend to refresh", async () => {
 });
 
 const job = (phase: object, extra: object = {}) => ({
-  documentId: "d1", title: "Scratch", phase, startedMs: Date.now(), fromCache: false, external: false, note: null, ...extra,
+  documentId: "d1", title: "Scratch", phase, startedMs: Date.now(), fromCache: false, format: "pdf", external: false, note: null, ...extra,
 });
 
 it("opens a document and shows the export's progress", async () => {
   render(App);
   await waitFor(() => expect(titles()).toEqual(["Projects", "Scratch"]));
   await fireEvent.click(screen.getByText("Scratch"));
-  expect(backend.opened).toEqual(["d1"]);
+  expect(backend.opened).toEqual(["d1:pdf"]);
 
   await emit("job-changed", job({ phase: "rendering" }));
   const bar = await screen.findByTestId("job-bar");
@@ -163,7 +174,7 @@ it("opens a document and shows the export's progress", async () => {
   // Nothing else can use the tablet meanwhile.
   expect(screen.getByTestId("refresh")).toBeDisabled();
   await fireEvent.click(screen.getByText("Scratch"));
-  expect(backend.opened).toEqual(["d1"]);
+  expect(backend.opened).toEqual(["d1:pdf"]);
 
   await emit("job-changed", job({ phase: "receiving", bytes: 3 * 1024 * 1024 }));
   await waitFor(() => expect(screen.getByTestId("job-bar")).toHaveTextContent("3.0 MB"));
@@ -201,4 +212,34 @@ it("shows a finished document in the app's viewer", async () => {
   await fireEvent.click(screen.getByTestId("viewer-close"));
   expect(screen.queryByTestId("viewer")).toBeNull();
   expect(titles()).toEqual(["Projects", "Scratch"]);
+});
+
+it("opens a book as its EPUB and can switch to the annotated PDF", async () => {
+  render(App);
+  await waitFor(() => screen.getAllByTestId("row"));
+  await fireEvent.click(screen.getByText("Projects"));
+  await fireEvent.click(screen.getByText("A novel"));
+  expect(backend.opened).toEqual(["d3:epub"]);
+
+  await emit("job-changed", job({ phase: "done" }, { documentId: "d3", title: "A novel", format: "epub" }));
+  const reader = await screen.findByTestId("epub-reader");
+  await waitFor(() => expect(screen.getByTestId("epub-progress")).toHaveTextContent("25% · Chapter one"));
+  expect(reader).toHaveTextContent("A novel");
+  expect(screen.getByTestId("show-epub")).toHaveAttribute("aria-pressed", "true");
+
+  await fireEvent.click(screen.getByTestId("show-pdf"));
+  expect(backend.opened).toEqual(["d3:epub", "d3:pdf"]);
+  await emit("job-changed", job({ phase: "done" }, { documentId: "d3", title: "A novel", format: "pdf" }));
+  expect(await screen.findByTestId("viewer")).toBeInTheDocument();
+  expect(screen.queryByTestId("epub-reader")).toBeNull();
+  expect(screen.getByTestId("show-pdf")).toHaveAttribute("aria-pressed", "true");
+});
+
+it("offers no EPUB switch for notebooks", async () => {
+  render(App);
+  await waitFor(() => screen.getAllByTestId("row"));
+  await fireEvent.click(screen.getByText("Scratch"));
+  await emit("job-changed", job({ phase: "done" }));
+  await screen.findByTestId("viewer");
+  expect(screen.queryByTestId("show-epub")).toBeNull();
 });

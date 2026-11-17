@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, type Snippet } from "svelte";
   import Icon from "../components/Icon.svelte";
   import * as ipc from "../lib/ipc";
   import type { PDFDocumentProxy } from "../lib/pdf";
 
-  let { id, title, onClose, onExternal }: {
+  let { id, title, onClose, onExternal, switcher }: {
     id: string;
     title: string;
     onClose: () => void;
     onExternal: () => void;
+    switcher?: Snippet;
   } = $props();
 
   const MIN = 0.25;
@@ -40,7 +41,7 @@
 
   onMount(async () => {
     try {
-      const [{ loadPdf }, bytes] = await Promise.all([import("../lib/pdf"), ipc.getDocumentPdf(id)]);
+      const [{ loadPdf }, bytes] = await Promise.all([import("../lib/pdf"), ipc.getDocumentFile(id, "pdf")]);
       const { doc: loaded, destroy } = await loadPdf(bytes);
       release = destroy;
       const pages = await Promise.all(
@@ -170,6 +171,7 @@
       <Icon name="fitWidth" size={18} />
     </button>
     {/if}
+    {@render switcher?.()}
     <button class="icon-btn plain" data-testid="viewer-external" aria-label="Open in the default PDF app" title="Open in the default PDF app" onclick={onExternal}>
       <Icon name="external" size={18} />
     </button>

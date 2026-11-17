@@ -12,6 +12,8 @@ pub enum Error {
     Timeout(Duration, &'static str),
     #[error("response larger than the {0} byte limit")]
     TooLarge(u64),
+    #[error("the archive from the tablet is unusable: {0}")]
+    BadArchive(String),
     #[error("the tablet sent a file that is not a valid {0}")]
     BadExport(&'static str),
     #[error("unexpected response from the tablet: {0}")]

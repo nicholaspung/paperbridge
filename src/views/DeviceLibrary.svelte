@@ -132,7 +132,7 @@
           <button
             class="row" data-testid="row" data-kind={rec.kind} data-id={rec.id}
             aria-disabled={rec.kind !== "folder" && busy}
-            title={rec.kind === "folder" ? undefined : busy ? "Another document is being prepared" : "Open as PDF"}
+            title={rec.kind === "folder" ? undefined : busy ? "Another document is being prepared" : "Open"}
             onclick={() => open(rec)}
           >
             <KindIcon kind={rec.kind} />

@@ -218,3 +218,17 @@ async fn first_byte_timeout_and_cancel_leave_nothing() {
     assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[tokio::test]
+async fn exports_an_rmdoc_and_extracts_the_original_epub() {
+    let (_mock, device) = setup().await;
+    let all = device.walk().await.unwrap();
+    let id = all.into_iter().find(|r| r.kind == DocKind::Epub).unwrap().id;
+    let dir = export_dir("epub");
+    let archive = dir.join("a.rmdoc");
+    device.export(&id, ExportFormat::Rmdoc, &archive, 1 << 30, &mut |_| {}).await.unwrap();
+    let dest = dir.join("Book.epub");
+    pb_core::rmdoc::extract_original(&archive, &id, "epub", &dest, &Default::default()).unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), pb_mock_tablet::mock_epub());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

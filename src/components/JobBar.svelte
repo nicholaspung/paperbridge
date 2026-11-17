@@ -63,8 +63,12 @@
         {:else if job.phase.phase === "waiting"}
           <span>Waiting for the library refresh to finish before preparing {t}…</span>
         {:else if job.phase.phase === "rendering"}
-          <span>The tablet is preparing {t} as a PDF <span class="muted">· {elapsed()}</span></span>
-          <span class="muted small">It renders the whole document before sending anything, so large notebooks can take a few minutes.</span>
+          {#if job.format === "epub"}
+            <span>Getting the book file for {t} from the tablet <span class="muted">· {elapsed()}</span></span>
+          {:else}
+            <span>The tablet is preparing {t} as a PDF <span class="muted">· {elapsed()}</span></span>
+            <span class="muted small">It renders the whole document before sending anything, so large notebooks can take a few minutes.</span>
+          {/if}
         {:else if job.phase.phase === "receiving"}
           <span>Receiving {t} <span class="muted">· {size(job.phase.bytes)}</span></span>
         {:else if job.phase.phase === "opening"}

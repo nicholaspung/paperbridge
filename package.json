@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
+    "foliate-js": "1.0.1",
     "pdfjs-dist": "6.4.299"
   },
   "packageManager": "pnpm@12.18.0"

@@ -11,6 +11,7 @@ pub mod listing;
 pub mod naming;
 pub mod platform;
 pub mod privacy;
+pub mod rmdoc;
 pub mod storage;
 pub mod transport;
 
