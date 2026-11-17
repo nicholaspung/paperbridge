@@ -42,19 +42,41 @@ describe("PaperBridge against the mock tablet", () => {
     await browser.waitUntil(async () => (await rows().length) === 18);
   });
 
-  it("opens a document, then reopens it from the local copy", async () => {
-    const jobPhase = () => $('[data-testid="job-bar"]').getAttribute("data-phase");
+  it("opens a document in the app, reopens it from the local copy, and re-exports after an edit", async () => {
+    const bar = () => $('[data-testid="job-bar"]');
+    const jobPhase = () => bar().getAttribute("data-phase");
+    const openFirstPdf = async () => {
+      await rows()[0].click();
+      await browser.waitUntil(async () => (await jobPhase()) === "done", { timeout: 20_000, timeoutMsg: "export did not finish" });
+      await expect($('[data-testid="viewer"]')).toBeDisplayed();
+      // PDF.js really draws the page inside the app's WebView, under the app's CSP.
+      await browser.waitUntil(async () => (await $$('[data-testid="pdf-page"][data-rendered="true"]').length) > 0, {
+        timeout: 15_000,
+        timeoutMsg: "the PDF page was not rendered",
+      });
+      return await bar().getText();
+    };
+    const closeViewer = async () => {
+      await $('[data-testid="viewer-close"]').click();
+      await expect($('[data-testid="library"]')).toBeDisplayed();
+      if (await $('[data-testid="job-dismiss"]').isExisting()) await $('[data-testid="job-dismiss"]').click();
+    };
+
     await $('[data-testid="filter-pdf"]').click();
     await browser.waitUntil(async () => (await rows().length) === 7, { timeoutMsg: "expected the 7 PDFs of the fixtures" });
-    await rows()[0].click();
-    await browser.waitUntil(async () => (await jobPhase()) === "done", { timeout: 20_000, timeoutMsg: "export did not finish" });
-    await expect($('[data-testid="job-bar"]')).not.toHaveText(expect.stringContaining("from the copy on this computer"));
-    await $('[data-testid="job-dismiss"]').click();
+    const id = await rows()[0].getAttribute("data-id");
 
-    await rows()[0].click();
-    await browser.waitUntil(async () => (await jobPhase()) === "done");
-    await expect($('[data-testid="job-bar"]')).toHaveText(expect.stringContaining("from the copy on this computer"));
-    await $('[data-testid="job-dismiss"]').click();
+    expect(await openFirstPdf()).not.toContain("from the copy on this computer");
+    await closeViewer();
+
+    expect(await openFirstPdf()).toContain("from the copy on this computer");
+    await $('[data-testid="viewer-external"]').click(); // dry run: no viewer is launched in CI
+    await closeViewer();
+
+    // Written on since: the app must notice without a library refresh.
+    await fetch(`${MOCK_URL}/__mock/touch/${id}`);
+    expect(await openFirstPdf()).not.toContain("from the copy on this computer");
+    await closeViewer();
   });
 
   it("shows a slow export as rendering and can cancel it", async () => {

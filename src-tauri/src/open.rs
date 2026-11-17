@@ -1,6 +1,10 @@
-//! "Open": export a document as an annotated PDF into the app's cache and
-//! hand it to the system viewer. One job at a time; it shares the device
-//! with the sync loop through `AppState::device`.
+//! "Open": get a document's annotated PDF into the app's cache, then show it
+//! in the app's viewer or hand it to the system viewer. One job at a time;
+//! it shares the device with the sync loop through `AppState::device`.
+//!
+//! The cache is keyed by the tablet's modified time. Before trusting a cached
+//! copy the job lists the document's folder (one small request), because the
+//! library cache can be older than the last stroke on the tablet.
 
 use crate::{sync, AppState, Shared};
 use pb_core::device::{classify, Device, ExportFormat};
@@ -24,12 +28,15 @@ const EXPORT_CAP: u64 = 4 << 30;
 pub enum JobPhase {
     /// Waiting for a library refresh to finish.
     Waiting,
+    /// Asking the tablet whether the document changed since the cached copy.
+    Checking,
     /// Request sent; the tablet renders the whole PDF before it answers.
     Rendering,
     Receiving {
         #[ts(type = "number")]
         bytes: u64,
     },
+    /// Handing the file to the system viewer.
     Opening,
     Done,
     Failed { message: String },
@@ -52,8 +59,12 @@ pub struct Job {
     /// When the job started, in ms since the Unix epoch.
     #[ts(type = "number")]
     pub started_ms: u64,
-    /// The local copy was current, so the tablet was not asked.
+    /// The local copy was current, so the tablet did not render anything.
     pub from_cache: bool,
+    /// Open in the system viewer instead of the app's own.
+    pub external: bool,
+    /// Something the user should know about the result.
+    pub note: Option<String>,
 }
 
 #[derive(Default)]
@@ -73,14 +84,19 @@ fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
-fn set_phase(app: &AppHandle, state: &AppState, phase: JobPhase) {
+fn update_job(app: &AppHandle, state: &AppState, f: impl FnOnce(&mut Job)) {
     let mut jobs = state.jobs.lock().unwrap();
     if let Some(job) = jobs.current.as_mut() {
-        if job.phase != phase {
-            job.phase = phase;
+        let before = job.clone();
+        f(job);
+        if *job != before {
             let _ = app.emit("job-changed", Some(job.clone()));
         }
     }
+}
+
+fn set_phase(app: &AppHandle, state: &AppState, phase: JobPhase) {
+    update_job(app, state, |j| j.phase = phase);
 }
 
 /// A plain-language reason for a failed export.
@@ -91,7 +107,9 @@ fn describe(err: &Error, first_byte: Duration) -> String {
              if it stays stuck, switch the USB web interface off and on.",
             first_byte.as_secs() / 60
         ),
-        Error::Timeout(..) => "The transfer stopped part-way. Check the cable and try again.".into(),
+        Error::Timeout(_, what) if what.contains("receiving") => {
+            "The transfer stopped part-way. Check the cable and try again.".into()
+        }
         Error::BadExport(_) => "The tablet sent something that is not a PDF. Nothing was saved.".into(),
         Error::Io(e) => format!("Could not save the file on this computer: {e}"),
         other => match classify(other) {
@@ -109,20 +127,28 @@ fn describe(err: &Error, first_byte: Duration) -> String {
     }
 }
 
-fn cached_copy(dir: &Path, rec: &DocumentRecord) -> Option<PathBuf> {
+fn read_entry(dir: &Path) -> Option<(CacheEntry, PathBuf)> {
     let entry: CacheEntry = serde_json::from_slice(&std::fs::read(dir.join("source.json")).ok()?).ok()?;
-    if entry.modified.is_none() || entry.modified != rec.modified {
-        return None;
-    }
     let path = dir.join(&entry.file);
     let mut head = [0u8; 5];
     use std::io::Read;
     std::fs::File::open(&path).ok()?.read_exact(&mut head).ok()?;
-    (&head == b"%PDF-").then_some(path)
+    (&head == b"%PDF-").then_some((entry, path))
+}
+
+/// The cached copy, if it was exported from exactly this version.
+fn cached_copy(dir: &Path, modified: &Option<String>) -> Option<PathBuf> {
+    let (entry, path) = read_entry(dir)?;
+    (modified.is_some() && entry.modified == *modified).then_some(path)
+}
+
+/// Whatever copy is cached, however old.
+fn any_cached_copy(dir: &Path) -> Option<PathBuf> {
+    read_entry(dir).map(|(_, p)| p)
 }
 
 /// Replaces whatever is cached for this document with the new export.
-fn commit_cache(dir: &Path, rec: &DocumentRecord, file: &Path) -> std::io::Result<()> {
+fn commit_cache(dir: &Path, modified: &Option<String>, file: &Path) -> std::io::Result<()> {
     let name = file.file_name().unwrap().to_string_lossy().into_owned();
     for entry in std::fs::read_dir(dir)?.flatten() {
         let n = entry.file_name().to_string_lossy().into_owned();
@@ -130,7 +156,7 @@ fn commit_cache(dir: &Path, rec: &DocumentRecord, file: &Path) -> std::io::Resul
             let _ = std::fs::remove_file(entry.path());
         }
     }
-    let meta = serde_json::to_vec(&CacheEntry { modified: rec.modified.clone(), file: name }).unwrap();
+    let meta = serde_json::to_vec(&CacheEntry { modified: modified.clone(), file: name }).unwrap();
     let tmp = dir.join(".source.json.tmp");
     std::fs::write(&tmp, meta)?;
     std::fs::rename(tmp, dir.join("source.json"))
@@ -147,55 +173,105 @@ fn open_with_system(app: &AppHandle, path: &Path) -> Result<(), String> {
         .map_err(|e| format!("The PDF was saved but could not be opened: {e}"))
 }
 
-async fn run_job(app: AppHandle, state: Arc<AppState>, rec: DocumentRecord, dir: PathBuf) {
+fn cache_dir_for(state: &AppState, id: &DocId) -> PathBuf {
+    state.cache_dir.join("open").join(id.as_str())
+}
+
+/// Ends the job with a file in hand: the app's viewer picks it up from
+/// `Done`; the system viewer is launched here.
+fn finish(app: &AppHandle, state: &AppState, path: &Path, external: bool) -> JobPhase {
+    if !external {
+        return JobPhase::Done;
+    }
+    set_phase(app, state, JobPhase::Opening);
+    match open_with_system(app, path) {
+        Ok(()) => JobPhase::Done,
+        Err(message) => JobPhase::Failed { message },
+    }
+}
+
+async fn fetch(app: &AppHandle, state: &Arc<AppState>, rec: &DocumentRecord, dir: &Path) -> Result<PathBuf, String> {
     let timeouts = Timeouts::default();
     let first_byte = timeouts.first_byte;
-    let result: Result<PathBuf, String> = async {
-        let _device = state.device.lock().await;
-        set_phase(&app, &state, JobPhase::Rendering);
-        let (target, _) = sync::find_target().ok_or("The tablet is no longer connected.")?;
-        let device = Device::new(&target, timeouts).map_err(|e| describe(&e, first_byte))?;
-        std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create the cache folder: {e}"))?;
-        let dest = dir.join(safe_file_name(&rec.title, "pdf"));
-        // An older copy under the same name would block the no-replace rename.
-        let _ = std::fs::remove_file(&dest);
-        let mut last = (Instant::now(), 0u64);
-        let (app2, state2) = (app.clone(), state.clone());
-        let mut progress = move |bytes: u64| {
-            // Throttle: at most ~5 updates a second.
-            if bytes == 0 || last.0.elapsed() >= Duration::from_millis(200) {
-                last = (Instant::now(), bytes);
-                set_phase(&app2, &state2, JobPhase::Receiving { bytes });
+    let _device = state.device.lock().await;
+    set_phase(app, state, JobPhase::Checking);
+    let (target, _) = sync::find_target().ok_or("The tablet is no longer connected.")?;
+    let device = Device::new(&target, timeouts).map_err(|e| describe(&e, first_byte))?;
+
+    // What does the tablet say about this document right now?
+    let fresh = match device.list(rec.parent.as_ref()).await {
+        Ok(items) => items.into_iter().find(|r| r.id == rec.id),
+        Err(e) => {
+            state.refresh.notify_one();
+            if let Some(path) = any_cached_copy(dir) {
+                update_job(app, state, |j| {
+                    j.from_cache = true;
+                    j.note = Some(
+                        "The tablet did not answer, so this is the copy saved earlier and may miss recent changes."
+                            .into(),
+                    );
+                });
+                return Ok(path);
             }
-        };
-        let out = device
-            .export(&rec.id, ExportFormat::Pdf, &dest, EXPORT_CAP, &mut progress)
-            .await
-            .map_err(|e| {
-                // Let the sync loop re-check the connection and update the badge.
-                state.refresh.notify_one();
-                describe(&e, first_byte)
-            })?;
-        commit_cache(&dir, &rec, &out.path).map_err(|e| format!("Could not update the cache: {e}"))?;
-        Ok(out.path)
-    }
-    .await;
-    let phase = match result {
-        Ok(path) => {
-            set_phase(&app, &state, JobPhase::Opening);
-            match open_with_system(&app, &path) {
-                Ok(()) => JobPhase::Done,
-                Err(message) => JobPhase::Failed { message },
-            }
+            return Err(describe(&e, first_byte));
         }
+    };
+    // Moved or changed since the last sync: refresh the library afterwards.
+    let modified = match &fresh {
+        Some(f) if f.modified == rec.modified => rec.modified.clone(),
+        Some(f) => {
+            state.refresh.notify_one();
+            f.modified.clone()
+        }
+        None => {
+            state.refresh.notify_one();
+            None
+        }
+    };
+    if let Some(path) = cached_copy(dir, &modified) {
+        update_job(app, state, |j| j.from_cache = true);
+        return Ok(path);
+    }
+
+    set_phase(app, state, JobPhase::Rendering);
+    std::fs::create_dir_all(dir).map_err(|e| format!("Could not create the cache folder: {e}"))?;
+    let dest = dir.join(safe_file_name(&rec.title, "pdf"));
+    // An older copy under the same name would block the no-replace rename.
+    let _ = std::fs::remove_file(&dest);
+    let mut last = Instant::now();
+    let (app2, state2) = (app.clone(), state.clone());
+    let mut progress = move |bytes: u64| {
+        // Throttle: at most ~5 updates a second.
+        if bytes == 0 || last.elapsed() >= Duration::from_millis(200) {
+            last = Instant::now();
+            set_phase(&app2, &state2, JobPhase::Receiving { bytes });
+        }
+    };
+    let out = device
+        .export(&rec.id, ExportFormat::Pdf, &dest, EXPORT_CAP, &mut progress)
+        .await
+        .map_err(|e| {
+            // Let the sync loop re-check the connection and update the badge.
+            state.refresh.notify_one();
+            describe(&e, first_byte)
+        })?;
+    commit_cache(dir, &modified, &out.path).map_err(|e| format!("Could not update the cache: {e}"))?;
+    Ok(out.path)
+}
+
+async fn run_job(app: AppHandle, state: Arc<AppState>, rec: DocumentRecord, dir: PathBuf, external: bool) {
+    let phase = match fetch(&app, &state, &rec, &dir).await {
+        Ok(path) => finish(&app, &state, &path, external),
         Err(message) => JobPhase::Failed { message },
     };
     set_phase(&app, &state, phase);
     state.jobs.lock().unwrap().abort = None;
 }
 
+/// Starts getting a document's PDF. Progress arrives as `job-changed`
+/// events; with `external` false the UI shows it when the job is `Done`.
 #[tauri::command]
-pub fn open_document(app: AppHandle, state: Shared, id: String) -> Result<(), String> {
+pub fn open_document(app: AppHandle, state: Shared, id: String, external: bool) -> Result<(), String> {
     let id = DocId::parse(&id).map_err(|e| e.to_string())?;
     let library = state.store.load_library().map_err(|e| e.to_string())?;
     let rec = library
@@ -209,35 +285,55 @@ pub fn open_document(app: AppHandle, state: Shared, id: String) -> Result<(), St
     if jobs.current.as_ref().is_some_and(|j| j.phase.is_active()) {
         return Err("Another document is still being prepared.".into());
     }
-    let dir = state.cache_dir.join("open").join(id.as_str());
+    let dir = cache_dir_for(&state, &id);
     let mut job = Job {
         document_id: id.as_str().to_string(),
         title: rec.title.clone(),
-        phase: JobPhase::Opening,
+        phase: JobPhase::Waiting,
         started_ms: now_ms(),
         from_cache: false,
+        external,
+        note: None,
     };
 
-    // An unchanged document opens from the local copy, even offline.
-    if let Some(path) = cached_copy(&dir, &rec) {
-        job.from_cache = true;
-        job.phase = match open_with_system(&app, &path) {
-            Ok(()) => JobPhase::Done,
-            Err(message) => JobPhase::Failed { message },
+    if state.status.lock().unwrap().connection != ConnectionState::Connected {
+        // Offline: the saved copy is the best there is.
+        let Some(path) = any_cached_copy(&dir) else {
+            return Err("Connect the tablet to open this document. It has not been opened on this computer before.".into());
         };
-        jobs.current = Some(job.clone());
-        let _ = app.emit("job-changed", Some(job));
+        job.from_cache = true;
+        if cached_copy(&dir, &rec.modified).is_none() {
+            job.note = Some("The tablet is not connected, and this saved copy is older than the library shows.".into());
+        }
+        jobs.current = Some(job);
+        drop(jobs);
+        let phase = finish(&app, &state, &path, external);
+        set_phase(&app, &state, phase);
         return Ok(());
     }
-    if state.status.lock().unwrap().connection != ConnectionState::Connected {
-        return Err("Connect the tablet to open this document. It has not been opened on this computer since it last changed.".into());
-    }
-    job.phase = JobPhase::Waiting;
     jobs.current = Some(job.clone());
     let _ = app.emit("job-changed", Some(job));
-    let handle = tauri::async_runtime::spawn(run_job(app.clone(), state.inner().clone(), rec, dir));
+    let handle = tauri::async_runtime::spawn(run_job(app.clone(), state.inner().clone(), rec, dir, external));
     jobs.abort = Some(handle);
     Ok(())
+}
+
+/// The cached PDF of a document, for the app's viewer. Takes an ID, never a
+/// path, and only reads the cache.
+#[tauri::command]
+pub fn get_document_pdf(state: Shared, id: String) -> Result<tauri::ipc::Response, String> {
+    let id = DocId::parse(&id).map_err(|e| e.to_string())?;
+    let path = any_cached_copy(&cache_dir_for(&state, &id)).ok_or("This document has not been opened yet.")?;
+    let bytes = std::fs::read(path).map_err(|e| format!("Could not read the saved PDF: {e}"))?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Opens the cached PDF of a document in the system viewer.
+#[tauri::command]
+pub fn open_external(app: AppHandle, state: Shared, id: String) -> Result<(), String> {
+    let id = DocId::parse(&id).map_err(|e| e.to_string())?;
+    let path = any_cached_copy(&cache_dir_for(&state, &id)).ok_or("This document has not been opened yet.")?;
+    open_with_system(&app, &path)
 }
 
 /// Stops the running job. The temp file is removed when the task drops it.

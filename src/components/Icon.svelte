@@ -24,6 +24,11 @@
     alertCircle: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M12 8v4", "M12 16h.01"],
     check: ["M20 6 9 17l-5-5"],
     spinner: ["M21 12a9 9 0 1 1-6.2-8.6"],
+    back: ["M15 18l-6-6 6-6"],
+    zoomIn: ["M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16z", "M21 21l-4.3-4.3", "M11 8v6", "M8 11h6"],
+    zoomOut: ["M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16z", "M21 21l-4.3-4.3", "M8 11h6"],
+    fitWidth: ["M3 5v14", "M21 5v14", "M7 12h10", "M10 9l-3 3 3 3", "M14 9l3 3-3 3"],
+    external: ["M15 3h6v6", "M10 14 21 3", "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"],
     download: ["M12 3v12", "M7 10l5 5 5-5", "M5 21h14"],
   } as const;
   export type IconName = keyof typeof PATHS;

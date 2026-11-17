@@ -7,6 +7,14 @@ export type Job = { documentId: string, title: string, phase: JobPhase,
  */
 startedMs: number, 
 /**
- * The local copy was current, so the tablet was not asked.
+ * The local copy was current, so the tablet did not render anything.
  */
-fromCache: boolean, };
+fromCache: boolean, 
+/**
+ * Open in the system viewer instead of the app's own.
+ */
+external: boolean, 
+/**
+ * Something the user should know about the result.
+ */
+note: string | null, };

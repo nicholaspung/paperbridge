@@ -1,8 +1,13 @@
 # PaperBridge — Implementation Plan
 
-**Version:** 1.5 · **Date:** 2026-11-12 · **Target:** Linux + macOS desktop, reMarkable 2 · **Primary dev environment:** Linux (Arch) · **Status:** specification for a coding agent
+**Version:** 1.6 · **Date:** 2026-11-12 · **Target:** Linux + macOS desktop, reMarkable 2 · **Primary dev environment:** Linux (Arch) · **Status:** specification for a coding agent
 
 ## 0. Changes
+
+**v1.6 (in-app viewer, fresh copies):**
+- **Documents open in PaperBridge's own viewer** (PDF.js 6, legacy build, bundled and lazy-loaded; no network). Pages render lazily near the viewport; fit-to-width (capped at 200%), zoom, page counter, Esc to close. "Open in the default PDF app" remains as a button. The webview gets the PDF through `get_document_pdf(id)`, which takes an ID, never a path. CSP adds `blob:` for images and workers and `data:` for fonts.
+- **Cached copies are checked against the tablet before use:** the job lists the document's folder (one small request) and compares the modified time, because the library cache can be older than the last stroke. A change also queues a library refresh. If the tablet does not answer, the old copy is shown with a note; offline, the saved copy opens with a note when it is older than the library.
+- Native `.rmdoc` viewing (drawing strokes in the app) is a possible later experiment, not planned: approximate pens, no templates, undocumented format.
 
 **v1.5 (Phase 2, first step: Open):**
 - **Open** exports a document's annotated PDF into the app's cache folder (`<cache>/open/<document id>/<title>.pdf`, plus `source.json` with the tablet's modified time) and opens it in the system viewer through `tauri-plugin-opener`. An unchanged document reopens from the cache without the tablet.

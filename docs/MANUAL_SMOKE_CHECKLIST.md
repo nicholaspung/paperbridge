@@ -14,9 +14,11 @@ macOS has no WebDriver for its webview, so these are checked by hand on every ma
 - [ ] Plug back in: it reconnects and refreshes by itself.
 - [ ] Switch off the USB web interface on the tablet, press Refresh after reconnecting: the app explains which setting to switch on.
 - [ ] The privacy button says "Isolation unverified" (never "verified").
-- [ ] Click a PDF, an EPUB and a notebook: each opens as a PDF in the default viewer, with its annotations.
-- [ ] Open the same document again without changing it: it opens at once, "from the copy on this computer", even with the cable unplugged.
-- [ ] Write on a notebook page, then open it again: the new strokes are there (the library must be refreshed first).
+- [ ] Click a PDF, an EPUB and a notebook: each shows in PaperBridge's viewer with its annotations; zoom, fit-width and scrolling work; Esc goes back to the same folder.
+- [ ] The "open in the default PDF app" button opens the same file in Preview / the system viewer.
+- [ ] Open the same document again without changing it: it shows quickly, "from the copy on this computer".
+- [ ] With the cable unplugged, a document opened before still shows.
+- [ ] Write on a notebook page **without pressing Refresh**, then open it again: the new strokes are there.
 - [ ] Open a large notebook: the bar says the tablet is preparing it and counts the time; Cancel stops it. Afterwards, Refresh still works (if not, note how long the tablet stayed busy).
 - [ ] While a document is being prepared, other documents and Refresh are unavailable; folders can still be browsed.
 

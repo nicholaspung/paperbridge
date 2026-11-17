@@ -188,6 +188,17 @@ fn route(state: &Mutex<State>, method: &str, path: &str) -> (Reply, u64) {
             None => (Reply::Full(400, "text/plain", b"unknown fault".to_vec()), 0),
         };
     }
+    // Simulates writing on a document: bumps its modified time.
+    if let Some(id) = path.strip_prefix("/__mock/touch/") {
+        let found = s.items.iter_mut().find(|i| i.get("ID").and_then(Value::as_str) == Some(id));
+        return match found {
+            Some(item) => {
+                item["ModifiedClient"] = json!("2001-01-01T00:00:00.0Z");
+                (Reply::Full(200, "text/plain", b"ok".to_vec()), 0)
+            }
+            None => (Reply::Full(404, "text/plain", b"no such item".to_vec()), 0),
+        };
+    }
     if s.hung || s.fault == Fault::Hang {
         return (Reply::Silence, 0);
     }

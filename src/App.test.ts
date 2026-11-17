@@ -2,7 +2,18 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+
+// The real PDF.js needs a browser; the viewer's logic is tested against a fake.
+vi.mock("./lib/pdf", () => ({
+  loadPdf: async () => {
+    const page = {
+      getViewport: ({ scale }: { scale: number }) => ({ width: 600 * scale, height: 800 * scale }),
+      render: () => ({ promise: Promise.resolve(), cancel() {} }),
+    };
+    return { doc: { numPages: 2, getPage: async () => page }, destroy() {} };
+  },
+}));
 import App from "./App.svelte";
 import type { DocumentRecord } from "./lib/bindings/DocumentRecord";
 import type { Status } from "./lib/bindings/Status";
@@ -54,6 +65,8 @@ beforeEach(() => {
       case "complete_first_run": backend.firstRunDone = true; return null;
       case "refresh": return null;
       case "get_job": return null;
+      case "get_document_pdf": return new Uint8Array([37, 80, 68, 70, 45]).buffer;
+      case "open_external": return null;
       case "open_document":
         if (backend.refuseOpen) throw backend.refuseOpen;
         backend.opened.push((args as { id: string }).id);
@@ -134,7 +147,9 @@ it("asks the backend to refresh", async () => {
   expect(backend.calls).toContain("refresh");
 });
 
-const job = (phase: object) => ({ documentId: "d1", title: "Scratch", phase, startedMs: Date.now(), fromCache: false });
+const job = (phase: object, extra: object = {}) => ({
+  documentId: "d1", title: "Scratch", phase, startedMs: Date.now(), fromCache: false, external: false, note: null, ...extra,
+});
 
 it("opens a document and shows the export's progress", async () => {
   render(App);
@@ -167,4 +182,23 @@ it("explains why a document could not be opened", async () => {
   await waitFor(() => screen.getAllByTestId("row"));
   await fireEvent.click(screen.getByText("Scratch"));
   expect(await screen.findByTestId("job-bar")).toHaveTextContent("Connect the tablet to open this document.");
+});
+
+it("shows a finished document in the app's viewer", async () => {
+  render(App);
+  await waitFor(() => screen.getAllByTestId("row"));
+  await fireEvent.click(screen.getByText("Scratch"));
+  await emit("job-changed", job({ phase: "done" }, { fromCache: true }));
+  const viewer = await screen.findByTestId("viewer");
+  expect(viewer).toHaveTextContent("Scratch");
+  await waitFor(() => expect(screen.getAllByTestId("pdf-page")).toHaveLength(2));
+  expect(screen.getByTestId("viewer-pages")).toHaveTextContent("1 / 2");
+  expect(screen.getByTestId("job-bar")).toHaveTextContent("Showing “Scratch” from the copy on this computer");
+
+  await fireEvent.click(screen.getByTestId("viewer-external"));
+  expect(backend.calls).toContain("open_external");
+
+  await fireEvent.click(screen.getByTestId("viewer-close"));
+  expect(screen.queryByTestId("viewer")).toBeNull();
+  expect(titles()).toEqual(["Projects", "Scratch"]);
 });

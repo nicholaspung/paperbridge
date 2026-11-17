@@ -13,7 +13,10 @@ export const getPrivacy = () => invoke<PrivacyStatus>("get_privacy");
 export const getSettings = () => invoke<Settings>("get_settings");
 export const completeFirstRun = () => invoke<void>("complete_first_run");
 export const refresh = () => invoke<void>("refresh");
-export const openDocument = (id: string) => invoke<void>("open_document", { id });
+export const openDocument = (id: string, external = false) => invoke<void>("open_document", { id, external });
+export const openExternal = (id: string) => invoke<void>("open_external", { id });
+export const getDocumentPdf = async (id: string) =>
+  new Uint8Array(await invoke<ArrayBuffer>("get_document_pdf", { id }));
 export const cancelJob = () => invoke<void>("cancel_job");
 export const dismissJob = () => invoke<void>("dismiss_job");
 export const getJob = () => invoke<Job | null>("get_job");

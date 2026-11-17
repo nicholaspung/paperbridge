@@ -14,6 +14,8 @@ class AppStore {
   job = $state<Job | null>(null);
   /** Why the last Open request was refused before it started. */
   openRefused = $state<string | null>(null);
+  /** The document shown in the app's viewer. */
+  viewing = $state<{ id: string; title: string } | null>(null);
 
   async init() {
     try {
@@ -22,7 +24,7 @@ class AppStore {
         void this.loadPrivacy();
       });
       await ipc.onLibraryUpdated(() => void this.loadLibrary());
-      await ipc.onJobChanged((j) => (this.job = j));
+      await ipc.onJobChanged((j) => this.onJob(j));
       [this.settings, this.status, this.job] = await Promise.all([
         ipc.getSettings(),
         ipc.getStatus(),
@@ -59,18 +61,31 @@ class AppStore {
     }
   }
 
-  get jobActive(): boolean {
-    const p = this.job?.phase.phase;
-    return p === "waiting" || p === "rendering" || p === "receiving" || p === "opening";
+  private onJob(j: Job | null) {
+    this.job = j;
+    if (j && j.phase.phase === "done" && !j.external) this.viewing = { id: j.documentId, title: j.title };
   }
 
-  async open(rec: DocumentRecord) {
+  get jobActive(): boolean {
+    const p = this.job?.phase.phase;
+    return p === "waiting" || p === "checking" || p === "rendering" || p === "receiving" || p === "opening";
+  }
+
+  async open(rec: DocumentRecord, external = false) {
     this.openRefused = null;
     try {
-      await ipc.openDocument(rec.id);
+      await ipc.openDocument(rec.id, external);
     } catch (e) {
       this.openRefused = String(e);
     }
+  }
+
+  closeViewer() {
+    this.viewing = null;
+  }
+
+  openExternal(id: string) {
+    ipc.openExternal(id).catch((e) => (this.openRefused = String(e)));
   }
 
   cancelJob() {

@@ -2,7 +2,7 @@
 
 A USB-only desktop manager for the reMarkable 2, for Linux and macOS. No cloud account, no reMarkable desktop app, and no internet traffic from the app.
 
-**Status: Phase 2 in progress.** The app connects to the tablet, shows and searches the library, and opens any document as an annotated PDF in the system viewer (cached locally). Importing, export to a chosen folder and backups are not built yet. See [the plan](PaperBridge_Implementation_Plan.md) and what has been [observed on real hardware](docs/API_COMPATIBILITY.md).
+**Status: Phase 2 in progress.** The app connects to the tablet, shows and searches the library, and shows any document as an annotated PDF in its built-in viewer (cached locally, refreshed when the tablet copy changes). Importing, export to a chosen folder and backups are not built yet. See [the plan](PaperBridge_Implementation_Plan.md) and what has been [observed on real hardware](docs/API_COMPATIBILITY.md).
 
 ## Running the app
 

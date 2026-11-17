@@ -10,7 +10,9 @@
   } = $props();
 
   const phase = $derived(job?.phase.phase);
-  const active = $derived(phase === "waiting" || phase === "rendering" || phase === "receiving" || phase === "opening");
+  const active = $derived(
+    phase === "waiting" || phase === "checking" || phase === "rendering" || phase === "receiving" || phase === "opening",
+  );
   let now = $state(Date.now());
 
   $effect(() => {
@@ -21,7 +23,7 @@
 
   // Success and cancellation clear themselves; failures stay until dismissed.
   $effect(() => {
-    if (phase !== "done" && phase !== "cancelled") return;
+    if ((phase !== "done" || job?.note) && phase !== "cancelled") return;
     const t = setTimeout(onDismiss, 5000);
     return () => clearTimeout(t);
   });
@@ -56,7 +58,9 @@
         <span>{refused}</span>
       {:else if job}
         {@const t = `“${job.title}”`}
-        {#if job.phase.phase === "waiting"}
+        {#if job.phase.phase === "checking"}
+          <span>Checking the tablet for changes to {t}…</span>
+        {:else if job.phase.phase === "waiting"}
           <span>Waiting for the library refresh to finish before preparing {t}…</span>
         {:else if job.phase.phase === "rendering"}
           <span>The tablet is preparing {t} as a PDF <span class="muted">· {elapsed()}</span></span>
@@ -66,7 +70,8 @@
         {:else if job.phase.phase === "opening"}
           <span>Opening {t}…</span>
         {:else if job.phase.phase === "done"}
-          <span>Opened {t}{#if job.fromCache}<span class="muted"> from the copy on this computer</span>{/if}</span>
+          <span>{job.external ? "Opened" : "Showing"} {t}{#if job.fromCache}{" "}<span class="muted">from the copy on this computer</span>{/if}</span>
+          {#if job.note}<span class="muted small">{job.note}</span>{/if}
         {:else if job.phase.phase === "failed"}
           <span>Could not open {t}. {job.phase.message}</span>
         {:else}

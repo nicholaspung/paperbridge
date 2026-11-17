@@ -138,7 +138,9 @@ pub fn run() {
             open::open_document,
             open::cancel_job,
             open::dismiss_job,
-            open::get_job
+            open::get_job,
+            open::get_document_pdf,
+            open::open_external
         ])
         .run(tauri::generate_context!())
         .expect("error while running PaperBridge");

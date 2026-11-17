@@ -130,7 +130,7 @@
       {#each rows as rec (rec.id)}
         <li>
           <button
-            class="row" data-testid="row" data-kind={rec.kind}
+            class="row" data-testid="row" data-kind={rec.kind} data-id={rec.id}
             aria-disabled={rec.kind !== "folder" && busy}
             title={rec.kind === "folder" ? undefined : busy ? "Another document is being prepared" : "Open as PDF"}
             onclick={() => open(rec)}
