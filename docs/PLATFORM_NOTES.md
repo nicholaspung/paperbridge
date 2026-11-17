@@ -29,8 +29,19 @@ PaperBridge only talks to an interface that is a reMarkable USB device with such
 
 There is no local toolchain requirement: builds come from the `macos` job in GitHub Actions (Actions tab → Build → Run workflow).
 
-1. Download the `PaperBridge-macos` artifact and open the `.dmg`.
-2. The build is ad-hoc signed, so clear the quarantine flag once per download:
+**Easiest:** install with the script, which fetches the newest build with the GitHub CLI. Files fetched that way are not quarantined, so Gatekeeper does not block the app and no `xattr` step is needed:
+
+```
+brew install gh && gh auth login        # once
+curl -fsSL https://raw.githubusercontent.com/nicholaspung/paperbridge/main/scripts/install-macos.sh | bash
+```
+
+It replaces `/Applications/PaperBridge.app`, puts `pb-probe` in `~/bin`, and opens the app. Pass a run ID to install a specific build.
+
+**By hand:**
+
+1. Download the `PaperBridge-macos` artifact in the browser and open the `.dmg`.
+2. The build is ad-hoc signed, and anything a browser downloads is quarantined, so macOS says it "could not verify" the app. Clear the flag after **every** download:
    ```
    xattr -dr com.apple.quarantine /Applications/PaperBridge.app
    ```
