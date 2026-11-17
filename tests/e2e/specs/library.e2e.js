@@ -45,7 +45,7 @@ describe("PaperBridge against the mock tablet", () => {
   it("opens a document, then reopens it from the local copy", async () => {
     const jobPhase = () => $('[data-testid="job-bar"]').getAttribute("data-phase");
     await $('[data-testid="filter-pdf"]').click();
-    await browser.waitUntil(async () => (await rows().length) === 8, { timeoutMsg: "expected 8 PDFs" });
+    await browser.waitUntil(async () => (await rows().length) === 7, { timeoutMsg: "expected the 7 PDFs of the fixtures" });
     await rows()[0].click();
     await browser.waitUntil(async () => (await jobPhase()) === "done", { timeout: 20_000, timeoutMsg: "export did not finish" });
     await expect($('[data-testid="job-bar"]')).not.toHaveText(expect.stringContaining("from the copy on this computer"));
