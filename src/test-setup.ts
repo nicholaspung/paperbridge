@@ -8,3 +8,4 @@ class NoopObserver {
 }
 globalThis.IntersectionObserver ??= NoopObserver as unknown as typeof IntersectionObserver;
 globalThis.ResizeObserver ??= NoopObserver as unknown as typeof ResizeObserver;
+Element.prototype.scrollIntoView ??= function () {};
